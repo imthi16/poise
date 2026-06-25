@@ -1,0 +1,45 @@
+# RC thermal-power simulator parameters.
+#
+# HARD CONSTRAINT: real parameters come ONLY from on-board calibration
+# (calibration/fit.py writes the `calibrated:` block and the depth->power map).
+# Do NOT present the placeholders below as a calibration result.
+#
+# The `placeholder` block exists SOLELY so the env / PPO plumbing is runnable and
+# testable OFF-DEVICE (no board). It is nominal, un-calibrated, and clearly labeled.
+# `calibrated.valid: false` until fit.py runs on real sweep data and flips it true.
+
+calibrated:
+  valid: false          # flips true only when fit.py writes real fitted params
+  r_th_c_per_w: null    # K/W  — thermal resistance (junction -> ambient)
+  c_th_j_per_c: null    # J/K  — thermal capacitance
+  fit_rmse_c: null      # reported fit error vs held-out real traces
+  source_calib_id: null # FK -> calibration_runs.id
+
+# Nominal placeholder ONLY for off-device development. NOT a measured result.
+placeholder:
+  r_th_c_per_w: 1.5     # nominal K/W
+  c_th_j_per_c: 40.0    # nominal J/K
+  ambient_c: 25.0
+  init_temp_c: 40.0
+
+# depth -> steady-state power (W). Placeholder shape (monotonic in depth) for the
+# off-device path; fit.py replaces this with the measured depth->power map.
+depth_power_map:
+  source: placeholder   # 'placeholder' | 'calibrated'
+  watts:
+    16: 18.0
+    20: 22.0
+    24: 26.0
+    28: 30.0
+    32: 35.0
+
+# depth -> per-token compute time (s) at nominal clock. Placeholder; used to
+# derive throughput in the simulator. Replaced by measurement.
+depth_latency_map:
+  source: placeholder
+  seconds:
+    16: 0.018
+    20: 0.022
+    24: 0.027
+    28: 0.031
+    32: 0.036

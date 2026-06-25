@@ -1,0 +1,51 @@
+# --- Secrets / env ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.installed.cfg
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+venv/
+.venv/
+env/
+
+# --- POISE artifacts (large / generated) ---
+data/calibration/*.csv
+data/calibration/*.npz
+data/results/*.db
+data/results/*.png
+data/results/*.json
+data/synthetic/*.index
+data/synthetic/faiss.index
+*.zip
+*.gguf
+*.safetensors
+models/
+
+# --- Node / dashboard ---
+node_modules/
+dashboard/dist/
+dashboard/.vite/
+npm-debug.log*
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.swp

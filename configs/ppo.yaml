@@ -1,0 +1,42 @@
+# PPO training configuration (runs OFF-DEVICE on Kaggle against the simulator).
+#
+# RESEARCH-CRITICAL: reward shaping is the experiment, not a constant. All w_*
+# weights are tunable and none are "the answer". train_ppo.py MUST sweep weights
+# and report the converged depth distribution — a policy that collapses to minimum
+# depth is a FAILED reward, not a result.
+
+ppo:
+  total_timesteps: 1_000_000
+  n_envs: 8
+  n_steps: 2048
+  batch_size: 256
+  gamma: 0.99
+  gae_lambda: 0.95
+  learning_rate: 3.0e-4
+  clip_range: 0.2
+  ent_coef: 0.01
+  seed: 0
+  policy: MlpPolicy
+  net_arch: [128, 128]
+
+reward:
+  # Starting-point weights — SWEEP these; report depth distribution per config.
+  w_thr: 1.0          # throughput (normalized)
+  w_q: 1.0            # quality cost from depth->quality table (hard-to-game: KL/ppl)
+  w_therm: 0.5        # penalty for temp above setpoint
+  w_energy: 0.3       # energy-per-token (normalized)
+  w_throttle: 10.0    # large; near-terminal penalty for a hard-throttle event
+
+env:
+  dt_s: 0.25                 # sim step == control period
+  episode_seconds: 120.0
+  throughput_norm_tok_s: 30.0   # reference for normalizing throughput term
+  energy_norm_j: 5.0            # reference for normalizing energy-per-token term
+
+domain_randomization:
+  enabled: true
+  r_th_rel_range: [0.8, 1.2]   # multiply fitted R_th
+  c_th_rel_range: [0.8, 1.2]   # multiply fitted C_th
+  power_rel_range: [0.9, 1.1]  # multiply depth->power map
+  ambient_c_range: [20.0, 35.0]
+  sensor_noise_c: 0.5          # gaussian std on observed temperature

@@ -1,0 +1,48 @@
+# Evaluation / stress-protocol configuration.
+#
+# HARD CONSTRAINT: every headline number is produced by eval/report.py and reported
+# with spread across >= n_seeds runs. No number is asserted in prose ahead of this.
+
+stress:
+  ambient_c: 25.0
+  warmup_seconds: 30.0          # discard before steady-state
+  steady_state_seconds: 180.0   # sustained generation until thermal steady-state
+  max_new_tokens: 512
+  prompt_set: ./data/synthetic/eval_prompts.jsonl
+
+# The comparison set MUST include static-full-32, >= 2 static reduced depths,
+# PID mode, and PPO mode (CLAUDE.md §6 eval rules).
+comparisons:
+  - { name: static-full-32, mode: static, static_depth: 32 }
+  - { name: static-24,      mode: static, static_depth: 24 }
+  - { name: static-16,      mode: static, static_depth: 16 }
+  - { name: pid,            mode: pid }
+  - { name: ppo,            mode: ppo }
+
+# Variance: repeat every comparison this many times with different seeds.
+n_seeds: 5
+seeds: [0, 1, 2, 3, 4]
+
+quality:
+  # Mean KL vs full-32 is the hard-to-game signal. Perplexity + a small task
+  # accuracy suite corroborate it.
+  reference_depth: 32
+  perplexity_dataset: ./data/synthetic/ppl_corpus.txt
+  task_suite: ./data/synthetic/task_suite.jsonl
+
+metrics:
+  # Recorded per run by benchmark.py.
+  - tok_per_s
+  - ttft_ms
+  - inter_token_latency_ms
+  - power_w
+  - energy_per_token_j        # integral(power dt) / tokens
+  - peak_temp_c
+  - time_above_setpoint_s
+  - throttle_events
+  - mean_budget
+
+report:
+  out_dir: ./data/results
+  emit_plots: true
+  emit_tables: true

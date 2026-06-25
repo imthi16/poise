@@ -1,0 +1,21 @@
+# Model / adaptive-engine configuration.
+#
+# HARD CONSTRAINT: the PyTorch adaptive path loads fp16 or bnb-4bit ONLY.
+# Q4_K_M is a GGUF / llama.cpp format and is NOT loadable here — it is reserved
+# for the llama.cpp baseline (see baselines/static_llamacpp.py).
+
+model:
+  model_id: deepseek-ai/DeepSeek-R1-Distill-Llama-8B   # Llama-3.1 base, 32 layers, gated
+  model_path: null          # optional local snapshot dir; null => download via HF_TOKEN
+  dtype: fp16               # fp16 | bnb-4bit   (NOT q4_k_m)
+  trust_remote_code: false
+  # The loader asserts the decoder block count equals depth.layer_total (32).
+
+baseline:
+  gguf_path: /models/deepseek-r1-q4_k_m.gguf   # llama.cpp Q4_K_M baseline ONLY
+
+generation:
+  max_new_tokens: 256
+  temperature: 0.0          # 0.0 => greedy (default for reproducible eval)
+  top_p: 1.0
+  seed: 0

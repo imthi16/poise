@@ -1,0 +1,19 @@
+# PID controller configuration.
+#
+# Mapping (business rule): error = temp_setpoint - temp_measured.
+#   temp ABOVE setpoint (negative error)  -> output drives budget DOWN
+#   temp BELOW setpoint (positive error)  -> output drives budget UP toward layer_max
+# The continuous PID output is mapped to the nearest allowed value in budget_set.
+#
+# PID is REACTIVE only and lags slow thermal dynamics. That lag is the motivation
+# for the PPO layer — it is not a bug to be tuned away.
+
+pid:
+  kp: 0.8                # starting point — TUNE against the board/simulator
+  ki: 0.05
+  kd: 0.2
+  # Output limits are expressed in "layers" around the budget range.
+  output_min: 16         # clamps map onto [layer_min, layer_max]
+  output_max: 32
+  integral_limit: 16.0   # anti-windup clamp on the integral term
+  period_ms: 250         # control re-evaluation period

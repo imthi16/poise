@@ -1,0 +1,38 @@
+# POISE base configuration.
+# Env vars (POISE_*) override these at load time — see poise/config.py.
+# Other configs/*.yaml are merged on top of this file by load_config().
+
+device: cuda            # cuda | cpu
+control_mode: pid       # static | pid | ppo
+
+depth:
+  layer_total: 32
+  layer_min: 16         # GUARD floor; the *usable* floor is set empirically by quality_profile
+  layer_max: 32
+  budget_set: [16, 20, 24, 28, 32]   # discrete allowed depths (action space)
+  static_depth: 32      # used only when control_mode == static
+
+thermal:
+  temp_setpoint_c: 80.0
+  temp_max_c: 87.0      # hard ceiling; crossing == failure event
+  ambient_c: 25.0
+
+telemetry:
+  backend: mock         # jtop | tegrastats | mock
+  hz: 4
+
+control:
+  period_ms: 250        # how often the controller re-evaluates
+
+storage:
+  db_path: ./data/results/poise.db
+  log_token_events: true   # high-volume; disable for production runs
+
+serving:
+  host: 0.0.0.0
+  port: 8000
+  prometheus_port: 9090
+
+rag:
+  data_dir: ./data/synthetic
+  index_path: ./data/synthetic/faiss.index

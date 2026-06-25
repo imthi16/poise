@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "poise"
+version = "0.1.0"
+description = "Power-Optimized Inference via State-aware Execution — hardware-state-conditioned variable-depth LLM inference on Jetson."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary — personal IP, see CLAUDE.md governance" }
+authors = [{ name = "POISE" }]
+keywords = [
+    "llm",
+    "adaptive-computation",
+    "early-exit",
+    "jetson",
+    "thermal-aware",
+    "reinforcement-learning",
+]
+
+# Core deps only — heavy/optional deps (torch, transformers, faiss, llama-cpp,
+# stable-baselines3) are installed via requirements.txt extras to keep the
+# off-device mock path lightweight.
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+    "pydantic>=2.5",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "httpx>=0.27",
+    "prometheus-client>=0.20",
+    "gymnasium>=0.29",
+]
+
+[project.optional-dependencies]
+engine = ["torch>=2.2", "transformers>=4.44", "accelerate>=0.30"]
+quant = ["bitsandbytes>=0.43"]
+baselines = ["llama-cpp-python>=0.2.79"]
+rl = ["stable-baselines3>=2.3"]
+rag = ["faiss-cpu>=1.8", "langgraph>=0.1"]
+jetson = ["jetson-stats>=4.2"]
+dev = ["pytest>=8.0", "ruff>=0.4"]
+
+[project.scripts]
+poise-serve = "poise.serving.api:run"
+poise-calibrate = "poise.calibration.sweep:main"
+poise-benchmark = "poise.eval.benchmark:main"
+
+[tool.setuptools.packages.find]
+include = ["poise*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
