@@ -53,6 +53,7 @@ class TokenTrace:
     latency_ms: float
     temp_c: Optional[float] = None
     power_w: Optional[float] = None
+    throttled: Optional[bool] = None
     kl_vs_full: Optional[float] = None
 
 
@@ -207,6 +208,7 @@ class AdaptiveRunner:
             latency_ms=latency_ms,
             temp_c=(sample.temp_c if sample is not None else None),
             power_w=(sample.power_w if sample is not None else None),
+            throttled=(sample.throttled if sample is not None else None),
             kl_vs_full=kl,
         )
 
