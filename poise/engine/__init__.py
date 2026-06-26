@@ -18,6 +18,18 @@ from .model_loader import (
     ModelLoadError,
 )
 from .early_exit import project_to_logits, last_token_logits
+from .kv_cache import (
+    KVStrategy,
+    KVBookkeeping,
+    VariableDepthKVCache,
+    plan_for_depth,
+)
+from .adaptive_runner import (
+    AdaptiveRunner,
+    BudgetContext,
+    TokenTrace,
+    GenerationResult,
+)
 
 __all__ = [
     "load_model",
@@ -29,4 +41,12 @@ __all__ = [
     "ModelLoadError",
     "project_to_logits",
     "last_token_logits",
+    "KVStrategy",
+    "KVBookkeeping",
+    "VariableDepthKVCache",
+    "plan_for_depth",
+    "AdaptiveRunner",
+    "BudgetContext",
+    "TokenTrace",
+    "GenerationResult",
 ]
