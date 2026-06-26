@@ -1,113 +1,248 @@
-# POISE — Power-Optimized Inference via State-aware Execution
+<div align="center">
 
-> On-device LLM engine that varies per-token transformer depth in response to live hardware physics.
+# ⚡ POISE
 
-POISE runs a 32-layer decoder-only LLM on an NVIDIA Jetson AGX Orin and **conditions
-per-token execution depth on the device's live physical state** (junction temperature,
-power draw, GPU clock, throttle status) via a PID controller plus a PPO policy trained
-off-device against a calibrated RC thermal simulator.
+### Power-Optimized Inference via State-aware Execution
 
-## The contribution
+**An on-device LLM engine that varies per-token transformer depth in response to live hardware physics.**
 
-**Hardware-state-conditioned adaptive computation.**
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![Tests](https://img.shields.io/badge/tests-122%20passing-2ea44f)](tests/)
+[![Off-device](https://img.shields.io/badge/off--device-mock%20mode-2ea44f)](#-off-device-by-design)
+[![PyTorch](https://img.shields.io/badge/adaptive%20path-PyTorch%20eager-ee4c2c?logo=pytorch&logoColor=white)](poise/engine/)
+[![RL](https://img.shields.io/badge/control-PID%20%2B%20PPO-764abc)](poise/control/)
+[![Serving](https://img.shields.io/badge/serving-FastAPI%20%2B%20Prometheus-009688?logo=fastapi&logoColor=white)](poise/serving/)
+[![License](https://img.shields.io/badge/license-personal%20IP-lightgrey)](#-license)
 
-Existing adaptive-depth / early-exit methods (CALM, LayerSkip, AdaInfer, DASH, and the
-wider early-exit literature) condition execution depth on **input difficulty** (token /
-sequence confidence, content). POISE instead conditions execution depth on **hardware
+*Conditioning per-token compute on the temperature, power, and throttle state of the chip running it.*
+
+</div>
+
+---
+
+## 🌡️ The problem
+
+Run a fixed-depth LLM on a thermally-constrained edge device under sustained load and the
+physics wins: the junction heats up, the hardware **throttles** the clock to protect the
+silicon, and throughput **collapses** — exactly when you need it most.
+
+POISE refuses that cliff. Instead of always executing all 32 transformer layers, it executes a
+**variable number of layers per token** — a *layer budget* — chosen in real time from the
+device's measured physical state. Under heat it **gracefully sheds depth** to hold a target
+tokens/sec and cut energy-per-token, trading a small, **measured** amount of quality rather than
+falling off a throttling cliff.
+
+```
+   fixed-depth model                          POISE (design goal)
+   throughput                                 throughput
+   ▲                                          ▲
+   │████████▓▓▒▒░░       ← throttle cliff      │████████▓▓▓▓▓▓▓▓   ← depth shed gracefully
+   │              ░░░░░                        │
+   └──────────────────▶ heat                   └──────────────────▶ heat
+
+   Schematic of the motivating problem + the design goal — NOT measured results.
+   Whether POISE achieves this (and at what quality cost) is an empirical question
+   answered only by the eval harness.
+```
+
+---
+
+## 💡 The contribution
+
+> ### Hardware-state-conditioned adaptive computation.
+
+Existing adaptive-depth / early-exit methods condition execution depth on **input difficulty**
+(token / sequence confidence, content). POISE instead conditions execution depth on **hardware
 state** — it closes the loop between live device physics and per-token compute.
 
-- "Adaptive layer skipping" by itself is **not** claimed as novel; that field is crowded.
-  The novelty is *what drives the depth decision*: hardware state, not input difficulty.
+| Method | Conditions depth on |
+| :--- | :--- |
+| CALM · LayerSkip · AdaInfer · DASH · (early-exit literature) | **input difficulty** — confidence / entropy / content |
+| **⚡ POISE (this work)** | **hardware state** — junction temp · power · GPU clock · throttle |
+
+The two axes are orthogonal and composable; the **hardware-state loop is the contribution.**
+
+- "Adaptive layer skipping" by itself is **not** claimed as novel — that field is crowded. The
+  novelty is *what drives the depth decision*.
 - The mechanism is literally **hardware-state-conditioned variable-depth execution**. Any
-  "neuromorphic-inspired" analogy, if used at all, refers to exactly that mechanism — it is
-  never a hardware/silicon claim.
+  "neuromorphic-inspired" analogy, if used at all, refers to exactly that mechanism — never a
+  hardware/silicon claim.
 
-## What it does
-
-Under sustained thermal load, a fixed-depth model is forced into hardware throttling and
-its throughput collapses. POISE instead *gracefully reduces depth* to hold a target
-tokens/sec and cut energy-per-token, trading a small, **measured** amount of quality.
-
+> [!IMPORTANT]
 > **No performance numbers appear in this README, the docs, or the paper until
-> `poise/eval/report.py` has produced them with variance across multiple runs.** Every
-> headline figure (energy %, quality %, throughput) is a measured output of the eval
-> harness, reported with spread — never asserted ahead of measurement.
+> `poise/eval/report.py` has produced them with variance across multiple runs.** Every headline
+> figure (energy %, quality %, throughput) is a measured output of the eval harness, reported
+> with spread — never asserted ahead of measurement.
 
-## Architecture (two-tier controller)
+---
 
-1. **PID feedback controller** — reactively maps a thermal error signal to a layer budget.
-   PID lags slow thermal dynamics; that lag is the motivation for the second tier.
-2. **PPO-trained RL policy** — given the full hardware-state vector, learns an anticipatory
-   budget allocation, acting ahead of throttling. Trained off-device against the simulator
-   with domain randomization, then validated on the real board.
+## 🧠 How it works — a two-tier controller
 
 ```
-telemetry ─▶ control/ (PID + PPO policy) ─▶ budget ─▶ engine/adaptive_runner ─▶ tokens
-   ▲                                                          │
-   └──────────────── live hardware state ◀────────────────────┘
+                    ┌──────────────────── telemetry/ ─────────────────────┐
+                    │  jtop · tegrastats · mock  →  TelemetrySample        │
+                    │  (temp · power · clock · util · throttled)           │
+                    └─────────────────────────┬───────────────────────────┘
+                                              │  live hardware state
+                                              ▼
+        control/  (POLICY)            ┌────────────────┐         engine/  (MECHANISM)
+   ┌────────────────────────┐         │ BudgetAllocator│ budget  ┌───────────────────────────┐
+   │  PID  +  PPO policy     │ ──────▶ │ static·pid·ppo │ ──────▶ │ adaptive_runner            │
+   │  (obs == training obs)  │         │  🔒 TEMP_MAX    │ /token  │  layers 0..budget-1        │
+   └────────────────────────┘         │   override      │         │  → early_exit → logits     │
+              ▲                        └────────────────┘         │  + variable-depth KV cache │
+              │ trained off-device                                └──────────────┬────────────┘
+              │ against the simulator                                            │ tokens + per-token trace
+   ┌──────────┴───────────────────────────────────┐                             ▼
+   │  rl/  RC simulator (calibrated) + Gym env +   │                  eval/ · serving/ · storage/
+   │  reward (quality from the step-3 gate) + PPO  │
+   └───────────────────────────────────────────────┘
 ```
 
-The **engine is mechanism, `control/` is policy** — the runner contains no control logic.
+1. **PID feedback controller** — reactively maps a thermal error signal to a layer budget. PID
+   lags slow thermal dynamics; that lag is the *motivation* for the second tier, not a bug.
+2. **PPO-trained policy** — given the full hardware-state vector, learns an *anticipatory* budget
+   allocation that acts ahead of throttling. Trained off-device against a calibrated RC thermal
+   simulator with domain randomization, then validated on the real board.
 
-## Off-device vs on-device
+🔒 **The engine is mechanism, `control/` is policy** — the runner contains no control logic, and
+thermal safety (`TEMP_MAX`) overrides throughput, always.
 
-Every hardware-touching module has a **mock path**, so the whole stack is developable and
-testable without the Jetson:
+---
 
-- `POISE_TELEMETRY_BACKEND=mock` drives a plausible thermal curve from a load level.
-- The RC simulator + Gymnasium env let the PPO policy train on Kaggle with no board.
-- Heavy/gated deps (`torch`, `transformers`, `faiss`, `llama.cpp`) are optional; the core
-  (config, telemetry-mock, control, simulator, env, serving, storage) installs and tests
-  green off-device.
+## ✨ At a glance
+
+- 🎚️ **Per-token variable depth** — clean per-layer loop with early-exit projection.
+- 🌡️ **Closed on physics** — depth follows temperature / power / throttle, not content.
+- 🧩 **Honest KV cache** — three documented strategies; constant-budget output is bit-identical.
+- 🚦 **Two-tier control** — reactive PID + anticipatory PPO, with a hard thermal-safety override.
+- 🔬 **A go/no-go quality gate** — depth→quality cost is *measured before* the controller is built.
+- 🖥️ **Live dashboard + API** — FastAPI (`/v1/*`) + Prometheus + a React/Recharts UI.
+- 🧪 **Fully testable off-device** — 122 tests green with no GPU, no model, no board.
+
+---
+
+## 🚀 Quickstart
 
 ```bash
-pip install -r requirements.txt        # core + serving + RL env (no torch)
-pytest                                 # green off-device in mock mode
-cp .env.example .env                   # then fill in HF_TOKEN etc. for on-device use
+# 1. Install the lightweight core (no torch — runs fully off-device)
+pip install -r requirements.txt
+
+# 2. Prove it works in mock mode
+pytest                                  # 122 tests green, no board required
+
+# 3. Generate the synthetic demo data (public/synthetic only)
+python scripts/make_synthetic_data.py
+
+# 4. Serve the API + live dashboard (uses the mock engine off-device)
+bash scripts/serve.sh                   # FastAPI on :8000, Prometheus at /metrics
+cd dashboard && npm install && npm run dev   # → http://localhost:5173
+
+# For on-device use, copy and fill in credentials (never committed):
+cp .env.example .env                    # HF_TOKEN, POISE_DEVICE=cuda, ...
 ```
 
-## Build / run order
+---
 
-See `CLAUDE.md` §5 for the authoritative step-by-step build order. Summary:
+## 🧊 Off-device by design
 
-1. Scaffold → 2. Telemetry → 3. **GATE: per-depth quality profile** → 4. Adaptive runner +
-KV cache → 5. Calibration (board) → 6. Simulator + env + reward → 7. PID → 8. PPO (Kaggle)
-→ 9. PPO on board → 10. Baselines → 11. Eval → 12. Serving + dashboard → 13. RAG demo.
+Every hardware-touching module ships a **mock path**, so the whole stack is developable, testable,
+and demoable without the Jetson:
 
-**Step 3 is a go/no-go gate**: measure the depth→quality cost before building the
-controller. The ≤2–3% quality-loss target is a hypothesis to be measured, not an assumption
-(see `docs/novelty.md` and `CLAUDE.md` §9).
+| Concern | On the board | Off-device (laptop / CI / Kaggle) |
+| :--- | :--- | :--- |
+| Telemetry | jtop / tegrastats | `POISE_TELEMETRY_BACKEND=mock` thermal curve |
+| Thermal model | calibrated RC params | clearly-labeled **placeholder** params |
+| RL training | — | RC simulator + Gymnasium env (no model) |
+| Serving / dashboard | real `AdaptiveRunner` | mock engine reusing the **real** control loop |
+| Heavy deps (`torch`, `transformers`, `faiss`, `llama.cpp`) | installed | optional extras |
 
-## Run-book
+---
+
+## 🗺️ Build order
+
+Built in dependency order (full spec in [`CLAUDE.md`](CLAUDE.md) §5). **Step 3 is a go/no-go gate.**
+
+| | Stage | | | Stage |
+| :-- | :-- | :-- | :-- | :-- |
+| 0 | Scaffold · config · storage | | 8 | PPO training (Kaggle) |
+| 1 | Telemetry (+ mock) | | 9 | PPO on-board validation |
+| 2 | Engine: load + early-exit | | 10 | Fixed-depth baselines |
+| **3** | **🚧 GATE — depth→quality profile** | | 11 | Eval harness + variance report |
+| 4 | Adaptive runner + KV cache | | 12 | Serving + metrics + dashboard |
+| 5 | Calibration → RC params | | 13 | RAG demo (synthetic only) |
+| 6 | Simulator + env + reward | | 14 | Repro packaging |
+| 7 | PID + budget allocator | | | |
+
+> 🚧 **The gate (step 3)** measures the depth→quality cost *before* the controller is built. The
+> ≤2–3% quality-loss target is a **hypothesis to be measured, not an assumption** — see
+> [`docs/novelty.md`](docs/novelty.md) and `CLAUDE.md` §9 for the honest options if it doesn't hold.
+
+---
+
+## 📟 Run-book
+
+<details>
+<summary><b>Calibration → training → benchmark → serve</b> (click to expand)</summary>
 
 ```bash
-# Calibration (on the Jetson):
+# Calibration sweep (on the Jetson) → fits RC params + depth→power map
 bash scripts/run_calibration.sh
 
-# PPO training (Kaggle, off-device against the simulator):
-#   scripts/train_ppo_kaggle.ipynb
+# PPO training (Kaggle, off-device against the simulator)
+#   open scripts/train_ppo_kaggle.ipynb
+#   → trains the policy, sweeps reward weights, reports the converged depth distribution
 
-# Benchmark / stress protocol:
+# Stress benchmark / headline comparison (static-full-32 · static×2 · pid · ppo)
 bash scripts/run_benchmark.sh
 
-# Serve the API + Prometheus metrics:
-bash scripts/serve.sh        # FastAPI on :8000, /metrics for Prometheus
+# Serve the API + Prometheus metrics
+bash scripts/serve.sh                 # /health  /v1/generate  /v1/telemetry  /metrics
 
-# Dashboard (live temp / power / budget / tok-s):
+# Live dashboard — temp / power / current-budget / tok-s + per-token budget trace
 cd dashboard && npm install && npm run dev
 ```
 
-## Governance
+</details>
 
-- Personal portfolio/research project. Assumes **personal IP ownership** of all code.
-- **No company/proprietary data anywhere.** The RAG demo uses only public or synthetic data
-  (a synthetic-doc generator ships with the repo).
-- **No secrets in the repo.** All tokens/keys via `.env` (git-ignored).
+---
 
-## Repository layout
+## 📂 Repository layout
 
-See `CLAUDE.md` §3 for the full tree and `docs/architecture.md` for the module map.
+```
+poise/
+├── telemetry/     # TelemetrySample + jtop/tegrastats readers + mock
+├── engine/        # model_loader · early_exit · adaptive_runner · kv_cache   (mechanism)
+├── control/       # pid · budget_allocator · policy                           (policy)
+├── rl/            # simulator · env · reward · domain_random · train_ppo
+├── calibration/   # quality_profile (the GATE) · sweep · fit
+├── baselines/     # static_llamacpp (Q4_K_M) · static_trtllm   (fixed-depth only)
+├── eval/          # benchmark · quality · report   (the only place numbers are produced)
+├── serving/       # FastAPI api · routes · Prometheus metrics
+├── storage/       # SQLite schema + migrations + accessors
+└── rag/           # synthetic FAISS index + LangGraph demo   (engine as a black box)
+```
 
-## License
+See [`docs/architecture.md`](docs/architecture.md) for the data-flow diagram and full module map,
+and [`docs/novelty.md`](docs/novelty.md) for the prior-art positioning.
 
-Proprietary — personal IP. See `CLAUDE.md` §1 governance.
+---
+
+## 🔒 Governance
+
+- **Personal portfolio / research project.** Assumes **personal IP ownership** of all code.
+- **No company / proprietary data anywhere.** The RAG demo uses only public or synthetic data — a
+  synthetic-doc generator ships with the repo.
+- **No secrets in the repo.** All tokens / keys via `.env` (git-ignored).
+- **No fabricated results.** Calibration params stay labeled *placeholder* until fit from real
+  data; headline numbers exist only as eval outputs with variance.
+
+---
+
+## 📜 License
+
+Proprietary — personal IP. See [`CLAUDE.md`](CLAUDE.md) §1 governance.
+
+<div align="center">
+<sub>POISE — depth follows physics.</sub>
+</div>
