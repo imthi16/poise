@@ -14,6 +14,16 @@ from .quality_profile import (
     recommend_layer_min,
     run_gate,
 )
+from .fit import (
+    RCFit,
+    CalibrationResult,
+    rc_step_response,
+    fit_rc_from_trace,
+    steady_state_power_by_depth,
+    aggregate_fits,
+    write_simulator_yaml,
+)
+from .sweep import SweepSpec, collect_trace, run_sweep, read_csv, write_csv
 
 __all__ = [
     "DepthQuality",
@@ -22,4 +32,16 @@ __all__ = [
     "perplexity_from_logits",
     "recommend_layer_min",
     "run_gate",
+    "RCFit",
+    "CalibrationResult",
+    "rc_step_response",
+    "fit_rc_from_trace",
+    "steady_state_power_by_depth",
+    "aggregate_fits",
+    "write_simulator_yaml",
+    "SweepSpec",
+    "collect_trace",
+    "run_sweep",
+    "read_csv",
+    "write_csv",
 ]
