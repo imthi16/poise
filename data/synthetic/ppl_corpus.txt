@@ -1,0 +1,40 @@
+A reactive controller lags slow thermal dynamics because the time constants span seconds to minutes.
+Hardware-state-conditioned execution depth closes the loop between device physics and per-token compute.
+Reducing the number of executed layers lowers compute and power at a measured cost in output quality.
+Hardware-state-conditioned execution depth closes the loop between device physics and per-token compute.
+Energy per token integrates instantaneous power over the generation window and divides by the number of tokens produced.
+Energy per token integrates instantaneous power over the generation window and divides by the number of tokens produced.
+Hardware-state-conditioned execution depth closes the loop between device physics and per-token compute.
+A reactive controller lags slow thermal dynamics because the time constants span seconds to minutes.
+Sustained inference load raises the junction temperature toward a steady state set by power draw and thermal resistance.
+Hardware-state-conditioned execution depth closes the loop between device physics and per-token compute.
+Sustained inference load raises the junction temperature toward a steady state set by power draw and thermal resistance.
+Sustained inference load raises the junction temperature toward a steady state set by power draw and thermal resistance.
+Energy per token integrates instantaneous power over the generation window and divides by the number of tokens produced.
+Sustained inference load raises the junction temperature toward a steady state set by power draw and thermal resistance.
+Hardware-state-conditioned execution depth closes the loop between device physics and per-token compute.
+Energy per token integrates instantaneous power over the generation window and divides by the number of tokens produced.
+A reactive controller lags slow thermal dynamics because the time constants span seconds to minutes.
+Reducing the number of executed layers lowers compute and power at a measured cost in output quality.
+A reactive controller lags slow thermal dynamics because the time constants span seconds to minutes.
+Sustained inference load raises the junction temperature toward a steady state set by power draw and thermal resistance.
+Reducing the number of executed layers lowers compute and power at a measured cost in output quality.
+Hardware-state-conditioned execution depth closes the loop between device physics and per-token compute.
+Reducing the number of executed layers lowers compute and power at a measured cost in output quality.
+Reducing the number of executed layers lowers compute and power at a measured cost in output quality.
+Reducing the number of executed layers lowers compute and power at a measured cost in output quality.
+Hardware-state-conditioned execution depth closes the loop between device physics and per-token compute.
+Energy per token integrates instantaneous power over the generation window and divides by the number of tokens produced.
+Sustained inference load raises the junction temperature toward a steady state set by power draw and thermal resistance.
+Sustained inference load raises the junction temperature toward a steady state set by power draw and thermal resistance.
+A reactive controller lags slow thermal dynamics because the time constants span seconds to minutes.
+Hardware-state-conditioned execution depth closes the loop between device physics and per-token compute.
+Energy per token integrates instantaneous power over the generation window and divides by the number of tokens produced.
+Sustained inference load raises the junction temperature toward a steady state set by power draw and thermal resistance.
+A reactive controller lags slow thermal dynamics because the time constants span seconds to minutes.
+Hardware-state-conditioned execution depth closes the loop between device physics and per-token compute.
+A reactive controller lags slow thermal dynamics because the time constants span seconds to minutes.
+Sustained inference load raises the junction temperature toward a steady state set by power draw and thermal resistance.
+Hardware-state-conditioned execution depth closes the loop between device physics and per-token compute.
+A reactive controller lags slow thermal dynamics because the time constants span seconds to minutes.
+Hardware-state-conditioned execution depth closes the loop between device physics and per-token compute.
