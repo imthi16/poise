@@ -1,0 +1,115 @@
+"""``poise doctor`` — diagnose the environment and prescribe the fix.
+
+The most common on-device gotcha: installing the **generic PyPI torch** on a Jetson.
+That wheel cannot use the integrated GPU (driver/CUDA mismatch), so ``cuda`` is
+unavailable and POISE silently runs on CPU. This module detects that (and other
+setup issues) and prints the exact, version-matched fix — so nobody gets stuck.
+
+    python -m poise.doctor        # or: bash scripts/doctor.sh
+"""
+
+from __future__ import annotations
+
+from . import hardware
+
+
+def diagnose() -> dict:
+    hw = hardware.probe("auto")
+    info = {
+        "device": hw.device,
+        "accelerator": hw.accelerator,
+        "is_jetson": hw.is_jetson,
+        "telemetry_backend": hw.telemetry_backend,
+        "torch_installed": hardware.torch_available(),
+        "cuda_available": hardware.cuda_available(),
+        "jetpack": hardware.jetpack_info(),
+    }
+    info["issues"] = _issues(info)
+    return info
+
+
+def _issues(info: dict) -> list[str]:
+    issues: list[str] = []
+    if info["is_jetson"] and info["torch_installed"] and not info["cuda_available"]:
+        issues.append("jetson_torch_cpu_only")
+    if not info["torch_installed"]:
+        issues.append("no_torch")
+    if info["is_jetson"] and info["telemetry_backend"] == "mock":
+        issues.append("jetson_no_telemetry")
+    return issues
+
+
+def recommend_torch_install(jetpack: dict | None) -> list[str]:
+    """The version-matched torch install commands for this Jetson."""
+    cuda = (jetpack or {}).get("cuda") or ""
+    l4t = (jetpack or {}).get("l4t") or ""
+    if l4t.startswith("R36") or cuda.startswith("12"):
+        cu = "cu122" if cuda.startswith("12.2") else "cu126"
+        index = f"https://pypi.jetson-ai-lab.dev/jp6/{cu}"
+    elif l4t.startswith("R35"):
+        index = "https://pypi.jetson-ai-lab.dev/jp5/cu114"
+    else:
+        index = "https://pypi.jetson-ai-lab.dev"
+    return [
+        "pip uninstall -y torch torchvision torchaudio",
+        f"pip install --no-cache-dir torch torchvision --index-url {index}",
+        "pip install transformers accelerate",
+    ]
+
+
+_FIX = {
+    "jetson_torch_cpu_only": (
+        "torch is installed but CANNOT use the Jetson GPU (generic PyPI wheel /\n"
+        "    driver mismatch) — POISE will run on CPU. Install the JetPack-matched wheel:"
+    ),
+    "no_torch": (
+        "torch is not installed — the adaptive engine needs it.\n"
+        "    On a Jetson use the JetPack wheel (below); elsewhere `pip install torch transformers`."
+    ),
+    "jetson_no_telemetry": (
+        "on a Jetson but no telemetry backend resolved — install jetson-stats for jtop:\n"
+        "    sudo pip install jetson-stats   (then reboot or `sudo systemctl restart jtop`)"
+    ),
+}
+
+
+def format_report(info: dict) -> str:
+    lines = ["POISE doctor", "=" * 48]
+    lines.append(f"  device            : {info['device']} ({info['accelerator']})")
+    lines.append(f"  jetson            : {info['is_jetson']}")
+    if info["jetpack"]:
+        jp = info["jetpack"]
+        lines.append(f"  jetpack / L4T     : {jp.get('jetpack')} / {jp.get('l4t')} "
+                     f"(CUDA {jp.get('cuda')})")
+    lines.append(f"  telemetry backend : {info['telemetry_backend']}")
+    lines.append(f"  torch installed   : {info['torch_installed']}")
+    lines.append(f"  cuda available    : {info['cuda_available']}")
+
+    if not info["issues"]:
+        lines.append("\n  ✓ no issues detected — ready to bring up.")
+        return "\n".join(lines)
+
+    lines.append("\n  Issues:")
+    for issue in info["issues"]:
+        lines.append(f"  ✗ {_FIX.get(issue, issue)}")
+        if issue in ("jetson_torch_cpu_only", "no_torch"):
+            for cmd in recommend_torch_install(info["jetpack"]):
+                lines.append(f"        {cmd}")
+            lines.append("    Authoritative wheels: "
+                         "https://docs.nvidia.com/deeplearning/frameworks/"
+                         "install-pytorch-jetson-platform/")
+    lines.append("\n  Re-run `python -m poise.doctor` until there are no issues, "
+                 "then `bash scripts/bringup.sh`.")
+    return "\n".join(lines)
+
+
+def main() -> int:  # pragma: no cover - CLI
+    info = diagnose()
+    print(format_report(info))
+    return 1 if info["issues"] else 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import sys
+
+    sys.exit(main())

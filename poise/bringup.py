@@ -277,6 +277,16 @@ def main() -> None:  # pragma: no cover - CLI
     print("=" * 64)
     print("POISE bring-up")
     print("=" * 64)
+
+    # Preflight: catch the #1 on-device gotcha (CPU-only torch on a Jetson) and print
+    # the version-matched fix BEFORE running the pipeline.
+    from .doctor import diagnose, format_report
+
+    dx = diagnose()
+    if dx["issues"]:
+        print(format_report(dx))
+        print("=" * 64)
+
     results = run_checklist(cfg, steps, max_kl=args.max_kl, do_train=args.train)
     print("\nSummary:")
     for r in results:

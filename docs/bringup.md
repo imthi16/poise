@@ -14,6 +14,16 @@ Device (`auto` → cuda > mps > cpu) and telemetry (`auto` → jtop > nvml > moc
 detected automatically; the depth/budget config is rescaled to the loaded model's
 actual layer count.
 
+## Diagnose first (especially on a Jetson)
+
+```bash
+bash scripts/doctor.sh       # or: python -m poise.doctor
+```
+
+Detects the #1 gotcha — the **generic PyPI torch on a Jetson** (it can't use the GPU,
+so everything silently runs on CPU) — and prints the exact JetPack-matched install
+command for your L4T/CUDA version. Bring-up also runs this preflight automatically.
+
 ## One command
 
 ```bash

@@ -65,6 +65,58 @@ def is_jetson() -> bool:
         return False
 
 
+def parse_l4t(line: str) -> str | None:
+    """Parse an L4T version like 'R36.4' from an /etc/nv_tegra_release header line."""
+    import re
+
+    m = re.search(r"R(\d+)\D+REVISION:\s*([\d.]+)", line)
+    return f"R{m.group(1)}.{m.group(2)}" if m else None
+
+
+def _l4t_jetpack(l4t: str | None) -> str | None:
+    if not l4t:
+        return None
+    table = {
+        "R36.4": "6.1/6.2", "R36.3": "6.0", "R36.2": "6.0 DP",
+        "R35.5": "5.1.3", "R35.4": "5.1.2", "R35.3": "5.1.1", "R35.2": "5.1",
+    }
+    for prefix, jp in table.items():
+        if l4t.startswith(prefix):
+            return jp
+    if l4t.startswith("R36"):
+        return "6.x"
+    if l4t.startswith("R35"):
+        return "5.x"
+    return None
+
+
+def cuda_toolkit_version() -> str | None:
+    """Best-effort CUDA toolkit version from the JetPack install (no torch needed)."""
+    import glob
+    import json
+
+    for p in ["/usr/local/cuda/version.json", *glob.glob("/usr/local/cuda-*/version.json")]:
+        try:
+            with open(p) as f:
+                return json.load(f).get("cuda", {}).get("version")
+        except Exception:
+            continue
+    return None
+
+
+def jetpack_info() -> dict | None:
+    """JetPack / L4T / CUDA info on a Jetson (None off-Jetson). Best-effort, guarded."""
+    if not is_jetson():
+        return None
+    l4t = None
+    try:
+        with open("/etc/nv_tegra_release") as f:
+            l4t = parse_l4t(f.readline())
+    except Exception:
+        pass
+    return {"l4t": l4t, "jetpack": _l4t_jetpack(l4t), "cuda": cuda_toolkit_version()}
+
+
 def jtop_available() -> bool:
     try:
         import jtop  # noqa: F401
@@ -247,6 +299,9 @@ __all__ = [
     "nvml_available",
     "jtop_available",
     "tegrastats_available",
+    "jetpack_info",
+    "parse_l4t",
+    "cuda_toolkit_version",
     "default_budget_set",
     "recommend_depth",
     "adapt_depth_to_model",
