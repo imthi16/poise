@@ -20,7 +20,8 @@ def diagnose() -> dict:
         "accelerator": hw.accelerator,
         "is_jetson": hw.is_jetson,
         "telemetry_backend": hw.telemetry_backend,
-        "torch_installed": hardware.torch_available(),
+        "torch_installed": hardware.torch_present(),       # package present (may not import)
+        "torch_import_error": hardware.torch_import_error(),
         "cuda_available": hardware.cuda_available(),
         "jetpack": hardware.jetpack_info(),
     }
@@ -28,15 +29,41 @@ def diagnose() -> dict:
     return info
 
 
+_MISSING_LIB_FIX = {
+    "libcusparseLt": (
+        "the GPU torch links cuSPARSELt — install it:\n"
+        "        sudo apt-get update && sudo apt-get install -y libcusparselt0 libcusparselt-dev"
+    ),
+    "libcudnn": (
+        "missing cuDNN — install JetPack's cuDNN:\n"
+        "        sudo apt-get install -y libcudnn9-cuda-12 || sudo apt-get install -y nvidia-jetpack"
+    ),
+    "libnvinfer": (
+        "missing TensorRT libs:  sudo apt-get install -y nvidia-jetpack"
+    ),
+}
+
+
 def _issues(info: dict) -> list[str]:
     issues: list[str] = []
-    if info["is_jetson"] and info["torch_installed"] and not info["cuda_available"]:
-        issues.append("jetson_torch_cpu_only")
+    err = info.get("torch_import_error")
     if not info["torch_installed"]:
         issues.append("no_torch")
+    elif err:
+        # torch is installed but cannot import — usually a missing CUDA .so on Jetson.
+        issues.append("torch_import_broken")
+    elif info["is_jetson"] and not info["cuda_available"]:
+        issues.append("jetson_torch_cpu_only")
     if info["is_jetson"] and info["telemetry_backend"] == "mock":
         issues.append("jetson_no_telemetry")
     return issues
+
+
+def _missing_lib_hint(err: str) -> str | None:
+    for lib, fix in _MISSING_LIB_FIX.items():
+        if lib.lower() in (err or "").lower():
+            return fix
+    return None
 
 
 def recommend_torch_install(jetpack: dict | None) -> list[str]:
@@ -81,6 +108,10 @@ _FIX = {
         "on a Jetson but no telemetry backend resolved — install jetson-stats for jtop:\n"
         "    sudo pip install jetson-stats   (then reboot or `sudo systemctl restart jtop`)"
     ),
+    "torch_import_broken": (
+        "torch is installed but FAILS to import — almost always a missing CUDA system\n"
+        "    library that the Jetson wheel links against. Fix the specific lib below."
+    ),
 }
 
 
@@ -95,6 +126,8 @@ def format_report(info: dict) -> str:
     lines.append(f"  telemetry backend : {info['telemetry_backend']}")
     lines.append(f"  torch installed   : {info['torch_installed']}")
     lines.append(f"  cuda available    : {info['cuda_available']}")
+    if info.get("torch_import_error"):
+        lines.append(f"  torch import error: {info['torch_import_error'][:80]}")
 
     if not info["issues"]:
         lines.append("\n  ✓ no issues detected — ready to bring up.")
@@ -103,6 +136,10 @@ def format_report(info: dict) -> str:
     lines.append("\n  Issues:")
     for issue in info["issues"]:
         lines.append(f"  ✗ {_FIX.get(issue, issue)}")
+        if issue == "torch_import_broken":
+            hint = _missing_lib_hint(info.get("torch_import_error") or "")
+            lines.append(f"        {hint}" if hint else
+                         "        (paste the import error and re-run; install the missing lib via apt)")
         if issue in ("jetson_torch_cpu_only", "no_torch"):
             for cmd in recommend_torch_install(info["jetpack"]):
                 lines.append(f"        {cmd}")

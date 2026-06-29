@@ -44,6 +44,29 @@ def cuda_available() -> bool:
         return False
 
 
+def torch_present() -> bool:
+    """True if the torch PACKAGE is installed (even if importing it fails)."""
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec("torch") is not None
+    except Exception:
+        return False
+
+
+def torch_import_error() -> str | None:
+    """If torch is installed but fails to import (e.g. a missing CUDA .so on Jetson),
+    return the error message; else None. Distinguishes 'broken install' from 'absent'."""
+    if not torch_present():
+        return None
+    try:
+        import torch  # noqa: F401
+
+        return None
+    except Exception as e:
+        return str(e)
+
+
 def mps_available() -> bool:
     try:
         import torch
@@ -299,6 +322,8 @@ __all__ = [
     "nvml_available",
     "jtop_available",
     "tegrastats_available",
+    "torch_present",
+    "torch_import_error",
     "jetpack_info",
     "parse_l4t",
     "cuda_toolkit_version",

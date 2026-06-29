@@ -48,28 +48,38 @@ class _FakeHW:
     mps_available: bool = False
 
 
-def test_diagnose_flags_jetson_cpu_only_torch(monkeypatch):
-    """The key gotcha: torch installed on a Jetson but cuda unavailable -> CPU-only."""
-    monkeypatch.setattr(hardware, "probe", lambda *_a, **_k: _FakeHW())
-    monkeypatch.setattr(hardware, "torch_available", lambda: True)
-    monkeypatch.setattr(hardware, "cuda_available", lambda: False)
+def _patch(monkeypatch, *, present, import_err, cuda, hw=None):
+    monkeypatch.setattr(hardware, "probe", lambda *_a, **_k: hw or _FakeHW())
+    monkeypatch.setattr(hardware, "torch_present", lambda: present)
+    monkeypatch.setattr(hardware, "torch_import_error", lambda: import_err)
+    monkeypatch.setattr(hardware, "cuda_available", lambda: cuda)
     monkeypatch.setattr(hardware, "jetpack_info",
                         lambda: {"l4t": "R36.4.0", "jetpack": "6.1/6.2", "cuda": "12.6.0"})
+
+
+def test_diagnose_flags_jetson_cpu_only_torch(monkeypatch):
+    """Torch imports fine on a Jetson but cuda unavailable -> CPU-only (wrong wheel)."""
+    _patch(monkeypatch, present=True, import_err=None, cuda=False)
     info = diagnose()
     assert "jetson_torch_cpu_only" in info["issues"]
     report = format_report(info)
-    assert "jp6/cu126" in report          # version-matched install command shown
-    assert "CPU" in report
+    assert "jp6/cu126" in report and "CPU" in report
+
+
+def test_diagnose_flags_broken_torch_import_cusparselt(monkeypatch):
+    """Torch installed but import fails on a missing CUDA .so -> prescribe the lib fix."""
+    _patch(monkeypatch, present=True,
+           import_err="libcusparseLt.so.0: cannot open shared object file", cuda=False)
+    info = diagnose()
+    assert "torch_import_broken" in info["issues"]
+    report = format_report(info)
+    assert "libcusparselt0" in report      # the exact apt fix is shown
+    assert "cuSPARSELt" in report or "cusparselt" in report.lower()
 
 
 def test_diagnose_clean_when_no_issues(monkeypatch):
-    monkeypatch.setattr(hardware, "probe",
-                        lambda *_a, **_k: _FakeHW(device="cuda", is_jetson=True,
-                                                  cuda_available=True))
-    monkeypatch.setattr(hardware, "torch_available", lambda: True)
-    monkeypatch.setattr(hardware, "cuda_available", lambda: True)
-    monkeypatch.setattr(hardware, "jetpack_info",
-                        lambda: {"l4t": "R36.4.0", "jetpack": "6.1/6.2", "cuda": "12.6.0"})
+    _patch(monkeypatch, present=True, import_err=None, cuda=True,
+           hw=_FakeHW(device="cuda", is_jetson=True, cuda_available=True))
     info = diagnose()
     assert info["issues"] == []
     assert "no issues" in format_report(info)
