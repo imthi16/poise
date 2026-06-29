@@ -169,7 +169,13 @@ class AdaptiveRunner:
 
             t0 = time.perf_counter()
             step_out = self._decode_step(next_id, position, budget, state)
-            latency_ms = (time.perf_counter() - t0) * 1000.0
+            measured_ms = (time.perf_counter() - t0) * 1000.0
+            # Prefer an explicit per-token latency from the step when provided (the
+            # mock engine supplies a device-realistic simulated value so throughput /
+            # energy are believable); otherwise use the wall-clock measurement.
+            latency_ms = step_out.get("latency_ms")
+            if latency_ms is None:
+                latency_ms = measured_ms
             last_logits = step_out["logits_last"]
 
             kl = None

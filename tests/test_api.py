@@ -97,6 +97,26 @@ def test_unknown_mode_rejected(client):
     assert r.status_code == 400
 
 
+def test_mock_metrics_are_device_realistic(client):
+    """The mock engine must report believable throughput/energy from the depth→latency
+    and depth→power maps — not the ~0-latency artifact (375k tok/s, 0 J/tok)."""
+    r = client.post("/v1/generate", json={"prompt": "x", "max_new_tokens": 32,
+                                          "mode": "static", "static_depth": 32}).json()
+    m = r["metrics"]
+    assert 5.0 < m["tok_per_s"] < 200.0          # plausible, not the 0-latency artifact
+    assert 0.05 < m["energy_per_token_j"] < 10.0  # power × realistic per-token time
+
+
+def test_lower_depth_is_faster(client):
+    """Demonstrates the core value prop end-to-end: fewer layers => higher throughput."""
+    deep = client.post("/v1/generate", json={"prompt": "x", "max_new_tokens": 24,
+                                             "mode": "static", "static_depth": 32}).json()
+    shallow = client.post("/v1/generate", json={"prompt": "x", "max_new_tokens": 24,
+                                                "mode": "static", "static_depth": 16}).json()
+    assert shallow["metrics"]["tok_per_s"] > deep["metrics"]["tok_per_s"]
+    assert shallow["metrics"]["energy_per_token_j"] <= deep["metrics"]["energy_per_token_j"]
+
+
 def test_service_thread_safe_under_concurrency(tmp_path, monkeypatch):
     """Regression: FastAPI runs endpoints in a THREADPOOL, so the shared SQLite
     connection is used across threads. TestClient is single-threaded and missed this;

@@ -51,16 +51,27 @@ class MockAdaptiveRunner(AdaptiveRunner):
         return None
 
     def _prefill(self, x):
+        # Simulate a plausible prefill cost (TTFT ~ a few full-depth token times) so
+        # the wall-clock ttft the runner measures is realistic in realtime mode.
+        if self.realtime:
+            time.sleep(min(0.25, 3.0 * self._interp_latency(self.layer_total)))
         return {"logits_last": 0}
 
     def _decode_step(self, token_id, position, budget, state):
-        # let the mock device "feel" the chosen depth so temperature responds
-        if self.telemetry_reader is not None and hasattr(self.telemetry_reader, "set_budget"):
-            self.telemetry_reader.set_budget(budget)
+        # Device-realistic per-token latency from the depth->latency map. Returned to
+        # the runner so throughput + energy are believable even when not sleeping; the
+        # realtime path also sleeps so the dashboard streams over real time and the
+        # temperature/budget trace actually evolves token-to-token.
+        lat = self._interp_latency(budget)
+        if self.telemetry_reader is not None:
+            if hasattr(self.telemetry_reader, "set_budget"):
+                self.telemetry_reader.set_budget(budget)
+            # heat tracks the depth being executed (more layers => more load)
+            if hasattr(self.telemetry_reader, "set_load"):
+                self.telemetry_reader.set_load(max(0.4, budget / self.layer_total))
         if self.realtime:
-            lat = self._interp_latency(budget)
-            time.sleep(min(0.05, lat))
-        return {"logits_last": 0}
+            time.sleep(min(0.12, lat))
+        return {"logits_last": 0, "latency_ms": lat * 1000.0}
 
     def _select_token(self, logits_last):
         self._counter += 1
@@ -274,8 +285,33 @@ def create_app(cfg: Optional["PoiseConfig"] = None, service: Optional[InferenceS
 def run() -> None:  # pragma: no cover - CLI (poise-serve)
     import uvicorn
 
+    from ..telemetry import make_reader
+
     cfg = load_config()
-    service = InferenceService(cfg, realtime=True)
+    reader = make_reader(cfg)
+
+    # Demo staging (mock backend only): shorten the thermal time-constant so a short
+    # session crosses the setpoint and you can SEE the controller shed depth. The mock
+    # is a dev stand-in, not the calibrated simulator — this changes nothing about the
+    # measured eval path.
+    if hasattr(reader, "tau_s"):
+        reader.tau_s = 10.0
+
+    # On-device, serve the REAL adaptive engine; off-device (or if the model/torch
+    # is unavailable) fall back to the mock engine so the dashboard still runs.
+    runner = None
+    try:
+        from ..engine.model_loader import load_model
+        from ..engine.adaptive_runner import AdaptiveRunner
+
+        model, tokenizer = load_model(cfg)
+        runner = AdaptiveRunner(cfg, model, tokenizer, telemetry_reader=reader)
+        print("[POISE] serving the REAL adaptive engine.")
+    except Exception as e:
+        print(f"[POISE] real model unavailable ({type(e).__name__}); serving the MOCK "
+              f"engine (dashboard works, but throughput is simulated, not an eval result).")
+
+    service = InferenceService(cfg, runner=runner, telemetry_reader=reader, realtime=True)
     if service.telemetry_reader is not None:
         service.telemetry_reader.start()
     app = create_app(cfg, service=service)

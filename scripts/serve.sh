@@ -12,4 +12,7 @@ PORT="${POISE_API_PORT:-8000}"
 [ -f data/synthetic/corpus.jsonl ] || python3 scripts/make_synthetic_data.py
 
 echo "[POISE] serving on ${HOST}:${PORT}  (/health /v1/* /metrics)"
-exec uvicorn "poise.serving.api:create_app" --factory --host "${HOST}" --port "${PORT}"
+# Use the realtime entrypoint: starts the background telemetry sampler and streams
+# generation over real time so the dashboard's per-token budget/temp trace evolves.
+# (On the Jetson, run() loads the real model instead of the mock engine.)
+exec python3 -c "from poise.serving.api import run; run()"
