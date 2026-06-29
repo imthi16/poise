@@ -88,21 +88,25 @@ class MockTelemetryReader(BaseTelemetryReader):
         return self.ambient_c + drive * span
 
     def _sample_once(self) -> TelemetrySample:
-        now = self._clock_fn()
-        dt = max(0.0, now - self._last_t)
-        self._last_t = now
+        # Guard the mutable thermal state: the dashboard polls /v1/state and
+        # /v1/telemetry from concurrent threadpool threads, both of which read().
+        with self._lock:
+            now = self._clock_fn()
+            dt = max(0.0, now - self._last_t)
+            self._last_t = now
 
-        drive = self._drive()
-        t_eq = self._equilibrium_temp(drive)
-        # Exact first-order step toward equilibrium (stable for any dt).
-        alpha = 1.0 - math.exp(-dt / self.tau_s) if dt > 0 else 0.0
-        self._temp += (t_eq - self._temp) * alpha
+            drive = self._drive()
+            t_eq = self._equilibrium_temp(drive)
+            # Exact first-order step toward equilibrium (stable for any dt).
+            alpha = 1.0 - math.exp(-dt / self.tau_s) if dt > 0 else 0.0
+            self._temp += (t_eq - self._temp) * alpha
 
-        throttled = self._temp >= self.temp_max_c
-
-        observed_temp = self._temp
-        if self.noise_c > 0:
-            observed_temp += self._rng.gauss(0.0, self.noise_c)
+            throttled = self._temp >= self.temp_max_c
+            observed_temp = self._temp
+            if self.noise_c > 0:
+                observed_temp += self._rng.gauss(0.0, self.noise_c)
+            cur_load = self._load
+            cur_budget = self._budget
 
         # Power scales with drive; throttling clamps the clock and trims power.
         power = self.idle_power_w + (self.max_power_w - self.idle_power_w) * drive
@@ -110,7 +114,7 @@ class MockTelemetryReader(BaseTelemetryReader):
         if throttled:
             clock *= 0.7
             power *= 0.85
-        gpu_util = 100.0 * _clamp01(self._load)
+        gpu_util = 100.0 * _clamp01(cur_load)
 
         return TelemetrySample(
             ts=time.time(),
@@ -119,7 +123,7 @@ class MockTelemetryReader(BaseTelemetryReader):
             gpu_clock_mhz=clock,
             gpu_util=gpu_util,
             throttled=bool(throttled),
-            mem_bw_util=100.0 * _clamp01(0.5 * self._load + 0.5 * (self._budget / self.layer_total)),
+            mem_bw_util=100.0 * _clamp01(0.5 * cur_load + 0.5 * (cur_budget / self.layer_total)),
         )
 
 

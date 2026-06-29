@@ -58,11 +58,22 @@ export default function App() {
           Hardware-state-conditioned variable-depth execution — depth follows device physics.
         </p>
         <div className="modes">
-          {MODES.map((m) => (
-            <button key={m} className={m === mode ? "active" : ""} onClick={() => changeMode(m)}>
-              {m}
-            </button>
-          ))}
+          {MODES.map((m) => {
+            const ppoLocked = m === "ppo" && state && !state.policy_loaded;
+            return (
+              <button
+                key={m}
+                className={m === mode ? "active" : ""}
+                onClick={() => changeMode(m)}
+                disabled={ppoLocked}
+                title={ppoLocked
+                  ? "Train a PPO policy (scripts/train_ppo_kaggle.ipynb) and set POISE_POLICY_PATH to enable ppo mode."
+                  : `Switch to ${m} mode`}
+              >
+                {m}{ppoLocked ? " 🔒" : ""}
+              </button>
+            );
+          })}
         </div>
       </header>
       {err && <div className="error">{err} — is the API running on :8000?</div>}
@@ -89,6 +100,7 @@ const css = `
   .modes button, .row button { margin-right: 8px; padding: 6px 14px; border-radius: 6px;
     border: 1px solid #b9c4cf; background: #f3f6f9; cursor: pointer; }
   .modes button.active { background: #2c7fb8; color: white; border-color: #2c7fb8; }
+  .modes button:disabled { opacity: 0.5; cursor: not-allowed; }
   main { display: grid; grid-template-columns: 1fr; gap: 16px; }
   @media (min-width: 880px) { main { grid-template-columns: 1fr 1fr; } }
   .panel { border: 1px solid #e1e7ee; border-radius: 10px; padding: 14px; background: white; }

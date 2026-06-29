@@ -95,3 +95,39 @@ def test_metrics_scrapeable(client):
 def test_unknown_mode_rejected(client):
     r = client.post("/v1/generate", json={"prompt": "x", "max_new_tokens": 2, "mode": "bogus"})
     assert r.status_code == 400
+
+
+def test_service_thread_safe_under_concurrency(tmp_path, monkeypatch):
+    """Regression: FastAPI runs endpoints in a THREADPOOL, so the shared SQLite
+    connection is used across threads. TestClient is single-threaded and missed this;
+    here we drive the service from many threads directly (cross-thread DB use, the
+    concurrent lazy-init/migration race, and concurrent writers must all be safe)."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    monkeypatch.setenv("POISE_DB_PATH", str(tmp_path / "concurrent.db"))
+    cfg = load_config()
+    svc = InferenceService(cfg)
+    svc.db()  # create the connection in THIS thread; workers run in others
+
+    errors: list[str] = []
+
+    def call(fn):
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            errors.append(repr(e))
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futs = []
+        for _ in range(15):
+            futs.append(ex.submit(call, svc.state))
+            futs.append(ex.submit(call, svc.telemetry))
+            futs.append(ex.submit(call, lambda: svc.generate("hi", 5, mode="pid")))
+        for f in futs:
+            f.result()
+
+    assert errors == [], f"concurrency errors: {errors[:3]}"
+    # all 15 generates persisted and are retrievable across threads
+    n = svc.db().execute("SELECT COUNT(*) c FROM runs").fetchone()["c"]
+    assert n == 15

@@ -105,14 +105,22 @@ _MIGRATIONS: list[tuple[int, str]] = [
 
 
 def connect(db_path: str | Path) -> sqlite3.Connection:
-    """Open a connection with sane pragmas (FK enforcement, dict-like rows)."""
+    """Open a connection with sane pragmas (FK enforcement, dict-like rows).
+
+    ``check_same_thread=False`` lets a single connection be shared across threads
+    (FastAPI runs endpoint functions in a threadpool). Callers that share a
+    connection across threads MUST serialize access themselves — the serving layer
+    does this with a lock (see ``serving/api.py``). ``busy_timeout`` lets concurrent
+    writers wait briefly for the lock instead of failing with "database is locked".
+    """
     path = Path(db_path)
     if str(path) != ":memory:":
         path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA busy_timeout = 5000;")
     return conn
 
 

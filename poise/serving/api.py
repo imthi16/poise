@@ -10,6 +10,7 @@ result (those come only from ``eval/report.py``).
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import TYPE_CHECKING, Optional
 
@@ -100,27 +101,34 @@ class InferenceService:
         self.metrics = metrics or MetricsRegistry()
         self.mode = cfg.control.mode
         self._db_conn = db_conn
+        # Serializes all DB access. The single SQLite connection is shared across
+        # FastAPI's threadpool threads (check_same_thread=False); this lock makes that
+        # safe and prevents the concurrent lazy-init / migration race.
+        self._db_lock = threading.RLock()
         self._allocators: dict[str, object] = {}
+        self._alloc_lock = threading.Lock()
         self.policy_loaded = False
         # try to load a policy for ppo (None => PID fallback)
         self._ensure_allocator(self.mode)
 
     # --- db ------------------------------------------------------------------ #
     def db(self):
-        if self._db_conn is None:
-            from ..storage.db import init_db
+        with self._db_lock:
+            if self._db_conn is None:
+                from ..storage.db import init_db
 
-            self._db_conn = init_db(self.cfg.storage.db_path)
-        return self._db_conn
+                self._db_conn = init_db(self.cfg.storage.db_path)
+            return self._db_conn
 
     # --- allocators ---------------------------------------------------------- #
     def _ensure_allocator(self, mode: str):
-        if mode not in self._allocators:
-            alloc = make_allocator(self.cfg, mode=mode)
-            if mode == "ppo":
-                self.policy_loaded = alloc.policy is not None
-            self._allocators[mode] = alloc
-        return self._allocators[mode]
+        with self._alloc_lock:
+            if mode not in self._allocators:
+                alloc = make_allocator(self.cfg, mode=mode)
+                if mode == "ppo":
+                    self.policy_loaded = alloc.policy is not None
+                self._allocators[mode] = alloc
+            return self._allocators[mode]
 
     # --- §7 operations ------------------------------------------------------- #
     def generate(
@@ -172,26 +180,28 @@ class InferenceService:
     def _store(self, prompt, mode, result, metrics) -> str:
         from ..storage import models
 
-        conn = self.db()
-        run_id = models.insert_run(
-            conn, mode=mode, model_id=self.cfg.model.model_id, dtype=self.cfg.model.dtype,
-            config_json=self.cfg.snapshot(), prompt=prompt,
-            notes=("mock-engine" if self.is_mock else None),
-        )
-        models.update_run_metrics(conn, run_id, {
-            "tokens": metrics.tokens, "tok_per_s": metrics.tok_per_s,
-            "ttft_ms": metrics.ttft_ms, "energy_per_token_j": metrics.energy_per_token_j,
-            "peak_temp_c": metrics.peak_temp_c,
-            "time_above_setpoint_s": metrics.time_above_setpoint_s,
-            "throttle_events": metrics.throttle_events, "mean_budget": metrics.mean_budget,
-        })
-        if self.cfg.storage.log_token_events:
-            models.insert_token_events(conn, run_id, [
-                {"idx": t.i, "budget": t.budget, "latency_ms": t.latency_ms,
-                 "temp_c": t.temp_c, "power_w": t.power_w, "kl_vs_full": t.kl_vs_full}
-                for t in result.trace
-            ])
-        return run_id
+        # One atomic, serialized transaction across the shared connection.
+        with self._db_lock:
+            conn = self.db()
+            run_id = models.insert_run(
+                conn, mode=mode, model_id=self.cfg.model.model_id, dtype=self.cfg.model.dtype,
+                config_json=self.cfg.snapshot(), prompt=prompt,
+                notes=("mock-engine" if self.is_mock else None),
+            )
+            models.update_run_metrics(conn, run_id, {
+                "tokens": metrics.tokens, "tok_per_s": metrics.tok_per_s,
+                "ttft_ms": metrics.ttft_ms, "energy_per_token_j": metrics.energy_per_token_j,
+                "peak_temp_c": metrics.peak_temp_c,
+                "time_above_setpoint_s": metrics.time_above_setpoint_s,
+                "throttle_events": metrics.throttle_events, "mean_budget": metrics.mean_budget,
+            })
+            if self.cfg.storage.log_token_events:
+                models.insert_token_events(conn, run_id, [
+                    {"idx": t.i, "budget": t.budget, "latency_ms": t.latency_ms,
+                     "temp_c": t.temp_c, "power_w": t.power_w, "kl_vs_full": t.kl_vs_full}
+                    for t in result.trace
+                ])
+            return run_id
 
     def telemetry(self) -> dict:
         s = self.telemetry_reader.read()
@@ -225,12 +235,13 @@ class InferenceService:
     def get_run(self, run_id: str) -> Optional[dict]:
         from ..storage import models
 
-        conn = self.db()
-        run = models.get_run(conn, run_id)
-        if run is None:
-            return None
-        run["trace"] = models.get_token_events(conn, run_id)
-        return run
+        with self._db_lock:
+            conn = self.db()
+            run = models.get_run(conn, run_id)
+            if run is None:
+                return None
+            run["trace"] = models.get_token_events(conn, run_id)
+            return run
 
     def rag_query(self, query: str, k: int = 4) -> dict:
         # Demo layer (synthetic/public data only). Lazy import so faiss/langgraph
