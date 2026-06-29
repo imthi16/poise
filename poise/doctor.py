@@ -40,20 +40,31 @@ def _issues(info: dict) -> list[str]:
 
 
 def recommend_torch_install(jetpack: dict | None) -> list[str]:
-    """The version-matched torch install commands for this Jetson."""
+    """The version-matched torch install commands for this Jetson.
+
+    Gives the NVIDIA CDN (most reliable) as primary and the jetson-ai-lab index as an
+    alternative, and warns about the two real-world gotchas: the index host may not
+    resolve, and transformers/accelerate will drag the generic (GPU-incompatible)
+    PyPI torch back unless torch is installed first / with --no-deps.
+    """
     cuda = (jetpack or {}).get("cuda") or ""
     l4t = (jetpack or {}).get("l4t") or ""
-    if l4t.startswith("R36") or cuda.startswith("12"):
+    if l4t.startswith("R35"):
+        jp_dir, index = "v51", "https://pypi.jetson-ai-lab.dev/jp5/cu114"
+    else:  # JetPack 6.x
         cu = "cu122" if cuda.startswith("12.2") else "cu126"
         index = f"https://pypi.jetson-ai-lab.dev/jp6/{cu}"
-    elif l4t.startswith("R35"):
-        index = "https://pypi.jetson-ai-lab.dev/jp5/cu114"
-    else:
-        index = "https://pypi.jetson-ai-lab.dev"
+        jp_dir = "v62" if l4t >= "R36.4.3" else "v61"
+    redist = f"https://developer.download.nvidia.com/compute/redist/jp/{jp_dir}/pytorch/"
     return [
         "pip uninstall -y torch torchvision torchaudio",
-        f"pip install --no-cache-dir torch torchvision --index-url {index}",
-        "pip install transformers accelerate",
+        "# Option A (NVIDIA CDN — most reliable). Find your wheel, then install it:",
+        f"curl -s {redist} | grep -oE 'torch-[0-9][^\"]*cp310[^\"]*\\.whl'",
+        f"pip install --no-cache-dir {redist}<paste-the-torch-wheel-name>",
+        f"# Option B (community index, if it resolves): pip install --no-cache-dir torch --index-url {index}",
+        "# THEN (critical) install accelerate WITHOUT letting it pull generic torch back:",
+        "pip install --no-deps accelerate",
+        'python3 -c "import torch; print(torch.cuda.is_available())"   # must be True',
     ]
 
 
