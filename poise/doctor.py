@@ -50,20 +50,20 @@ def recommend_torch_install(jetpack: dict | None) -> list[str]:
     cuda = (jetpack or {}).get("cuda") or ""
     l4t = (jetpack or {}).get("l4t") or ""
     if l4t.startswith("R35"):
-        jp_dir, index = "v51", "https://pypi.jetson-ai-lab.dev/jp5/cu114"
+        cu, jp = "cu114", "jp5"
     else:  # JetPack 6.x
         cu = "cu122" if cuda.startswith("12.2") else "cu126"
-        index = f"https://pypi.jetson-ai-lab.dev/jp6/{cu}"
-        jp_dir = "v62" if l4t >= "R36.4.3" else "v61"
-    redist = f"https://developer.download.nvidia.com/compute/redist/jp/{jp_dir}/pytorch/"
+        jp = "jp6"
+    docs = "https://docs.nvidia.com/deeplearning/frameworks/install-pytorch-jetson-platform/"
     return [
-        "pip uninstall -y torch torchvision torchaudio",
-        "# Option A (NVIDIA CDN — most reliable). Find your wheel, then install it:",
-        f"curl -s {redist} | grep -oE 'torch-[0-9][^\"]*cp310[^\"]*\\.whl'",
-        f"pip install --no-cache-dir {redist}<paste-the-torch-wheel-name>",
-        f"# Option B (community index, if it resolves): pip install --no-cache-dir torch --index-url {index}",
-        "# THEN (critical) install accelerate WITHOUT letting it pull generic torch back:",
-        "pip install --no-deps accelerate",
+        "pip uninstall -y torch torchvision torchaudio   # remove the GPU-incompatible build FIRST",
+        "# Get YOUR JetPack's torch wheel URL from NVIDIA's doc (the CDN dir listing is",
+        "# disabled, but the .whl files download fine), then install it directly:",
+        f"#   {docs}",
+        f'pip install --no-cache-dir "<the torch-...{cu}...aarch64.whl URL from the doc>"',
+        f"# community-index alternative IF it resolves: --index-url https://pypi.jetson-ai-lab.io/{jp}/{cu}",
+        "pip install --no-deps accelerate   # so it cannot pull the generic torch back",
+        "# bulletproof fallback: run in NVIDIA's container  nvcr.io/nvidia/l4t-pytorch (matches your L4T)",
         'python3 -c "import torch; print(torch.cuda.is_available())"   # must be True',
     ]
 
