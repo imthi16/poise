@@ -2,7 +2,7 @@
 # Env vars (POISE_*) override these at load time — see poise/config.py.
 # Other configs/*.yaml are merged on top of this file by load_config().
 
-device: cuda            # cuda | cpu
+device: auto            # auto | cuda | mps | cpu   (auto: cuda > mps > cpu)
 control_mode: pid       # static | pid | ppo
 
 depth:
@@ -18,7 +18,7 @@ thermal:
   ambient_c: 25.0
 
 telemetry:
-  backend: mock         # jtop | tegrastats | mock
+  backend: auto         # auto | jtop | nvml | tegrastats | mock  (auto picks the best available)
   hz: 4
 
 control:

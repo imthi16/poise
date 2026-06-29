@@ -44,9 +44,9 @@ _CONFIG_FILES = (
 )
 
 _VALID_DTYPES_ADAPTIVE = ("fp16", "bnb-4bit")
-_VALID_DEVICES = ("cuda", "cpu")
+_VALID_DEVICES = ("cuda", "mps", "cpu")  # resolved targets ("auto" resolves to one of these)
 _VALID_MODES = ("static", "pid", "ppo")
-_VALID_TELEMETRY = ("jtop", "tegrastats", "mock")
+_VALID_TELEMETRY = ("jtop", "nvml", "tegrastats", "mock", "auto")
 
 
 # --------------------------------------------------------------------------- #
@@ -371,11 +371,19 @@ def _build(resolved: dict) -> PoiseConfig:
         fit_rmse_c=(float(fit_rmse) if fit_rmse is not None else None),
     )
 
+    # Resolve device "auto" to a concrete target (cuda > mps > cpu) so all downstream
+    # code sees a real device. Detection guards torch, so it is safe off-device.
+    device = str(resolved.get("device", "auto"))
+    if device == "auto":
+        from .hardware import detect_device
+
+        device = detect_device("auto")
+
     model_cfg = ModelConfig(
         model_id=str(_get_path(resolved, "model.model_id", "")),
         model_path=(_get_path(resolved, "model.model_path") or None),
         dtype=str(_get_path(resolved, "model.dtype", "fp16")),
-        device=str(resolved.get("device", "cuda")),
+        device=device,
         trust_remote_code=bool(_get_path(resolved, "model.trust_remote_code", False)),
         gguf_path=str(_get_path(resolved, "baseline.gguf_path", "")),
         hf_token=os.environ.get("HF_TOKEN") or None,

@@ -38,10 +38,14 @@ def _require_torch():
     return torch, transformers
 
 
-def load_model(cfg: "PoiseConfig") -> Tuple[Any, Any]:
+def load_model(cfg: "PoiseConfig", *, strict_layers: bool = False) -> Tuple[Any, Any]:
     """Load model + tokenizer per config. Returns ``(model, tokenizer)``.
 
-    Enforces the fp16 / bnb-4bit constraint and the exact layer count.
+    Universal: works on cuda / mps / cpu with ANY HF decoder-only model. dtype is
+    adapted to the device (CPU => fp32; bnb-4bit requires CUDA). The layer count is
+    NOT hard-required — when it differs from ``layer_total`` the caller adapts the
+    depth config via ``hardware.adapt_depth_to_model`` (set ``strict_layers=True`` to
+    require an exact match instead). The fp16/bnb-4bit-vs-q4_k_m constraint still holds.
     """
     # Enforce the dtype constraint BEFORE importing torch so the rejection is
     # independent of whether the heavy deps are installed (defense in depth — the
@@ -60,44 +64,73 @@ def load_model(cfg: "PoiseConfig") -> Tuple[Any, Any]:
     model_ref = cfg.model.model_path or cfg.model.model_id
     token = cfg.model.hf_token
 
+    device = cfg.model.device
     kwargs: dict[str, Any] = {
         "trust_remote_code": cfg.model.trust_remote_code,
     }
     if token:
         kwargs["token"] = token
 
+    if dtype == "bnb-4bit":
+        if device != "cuda":
+            import warnings
+
+            warnings.warn(
+                f"bnb-4bit requires CUDA; device is {device!r}. Falling back to "
+                f"{'fp16' if device == 'mps' else 'fp32'}.",
+                stacklevel=2,
+            )
+            dtype = "fp16" if device == "mps" else "fp32"
+        else:
+            try:
+                from transformers import BitsAndBytesConfig
+            except Exception as e:  # pragma: no cover
+                raise ModelLoadError(
+                    "bnb-4bit requested but bitsandbytes/transformers quant config is "
+                    "unavailable. Install `pip install -e .[quant]`."
+                ) from e
+            kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+            )
+
+    # CPU generally lacks fast/usable fp16 inference -> use fp32 there.
+    if dtype == "fp16" and device == "cpu":
+        dtype = "fp32"
     if dtype == "fp16":
         kwargs["torch_dtype"] = torch.float16
-    elif dtype == "bnb-4bit":
-        try:
-            from transformers import BitsAndBytesConfig
-        except Exception as e:  # pragma: no cover
-            raise ModelLoadError(
-                "bnb-4bit requested but bitsandbytes/transformers quant config is "
-                "unavailable. Install `pip install -e .[quant]`."
-            ) from e
-        kwargs["quantization_config"] = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-        )
-    else:
-        raise ModelLoadError(f"unsupported adaptive dtype: {cfg.model.dtype!r}")
+    elif dtype == "fp32":
+        kwargs["torch_dtype"] = torch.float32
 
-    if cfg.model.device == "cuda":
+    if device == "cuda" and "quantization_config" not in kwargs:
         kwargs["device_map"] = {"": 0}
 
     tokenizer = AutoTokenizer.from_pretrained(model_ref, token=token)
     model = AutoModelForCausalLM.from_pretrained(model_ref, **kwargs)
+    # Place on mps/cpu when not using a device_map / quantization.
+    if device in ("mps", "cpu") and "device_map" not in kwargs:
+        try:
+            model = model.to(device)
+        except Exception:  # pragma: no cover - best effort
+            pass
     model.eval()
 
     n = get_num_layers(model)
     if n != cfg.depth.layer_total:
-        raise ModelLoadError(
-            f"loaded model has {n} decoder layers but config expects "
-            f"POISE_LAYER_TOTAL={cfg.depth.layer_total}. Refusing to proceed — the "
-            f"depth/budget math assumes exactly {cfg.depth.layer_total} layers."
+        if strict_layers:
+            raise ModelLoadError(
+                f"loaded model has {n} decoder layers but config expects "
+                f"POISE_LAYER_TOTAL={cfg.depth.layer_total} (strict_layers=True)."
+            )
+        import warnings
+
+        warnings.warn(
+            f"loaded model has {n} decoder layers (config layer_total="
+            f"{cfg.depth.layer_total}). Adapt the depth config to the model with "
+            f"hardware.adapt_depth_to_model(cfg, {n}) before running the controller.",
+            stacklevel=2,
         )
     return model, tokenizer
 

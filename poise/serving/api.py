@@ -286,8 +286,11 @@ def run() -> None:  # pragma: no cover - CLI (poise-serve)
     import uvicorn
 
     from ..telemetry import make_reader
+    from ..hardware import probe
 
     cfg = load_config()
+    hw = probe(cfg.model.device)
+    print(f"[POISE] hardware: {hw.summary()}")
     reader = make_reader(cfg)
 
     # Demo staging (mock backend only): shorten the thermal time-constant so a short
@@ -301,14 +304,18 @@ def run() -> None:  # pragma: no cover - CLI (poise-serve)
     # is unavailable) fall back to the mock engine so the dashboard still runs.
     runner = None
     try:
-        from ..engine.model_loader import load_model
+        from ..engine.model_loader import load_model, get_num_layers
         from ..engine.adaptive_runner import AdaptiveRunner
+        from ..hardware import adapt_depth_to_model
 
         model, tokenizer = load_model(cfg)
+        # Universal: match the depth/budget config to whatever model was loaded.
+        cfg = adapt_depth_to_model(cfg, get_num_layers(model))
         runner = AdaptiveRunner(cfg, model, tokenizer, telemetry_reader=reader)
-        print("[POISE] serving the REAL adaptive engine.")
+        print(f"[POISE] serving the REAL adaptive engine "
+              f"({cfg.depth.layer_total} layers, budgets {list(cfg.depth.budget_set)}).")
     except Exception as e:
-        print(f"[POISE] real model unavailable ({type(e).__name__}); serving the MOCK "
+        print(f"[POISE] real model unavailable ({type(e).__name__}: {e}); serving the MOCK "
               f"engine (dashboard works, but throughput is simulated, not an eval result).")
 
     service = InferenceService(cfg, runner=runner, telemetry_reader=reader, realtime=True)

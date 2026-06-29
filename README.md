@@ -7,7 +7,7 @@
 **An on-device LLM engine that varies per-token transformer depth in response to live hardware physics.**
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-122%20passing-2ea44f)](tests/)
+[![Tests](https://img.shields.io/badge/tests-149%20passing-2ea44f)](tests/)
 [![Off-device](https://img.shields.io/badge/off--device-mock%20mode-2ea44f)](#-off-device-by-design)
 [![PyTorch](https://img.shields.io/badge/adaptive%20path-PyTorch%20eager-ee4c2c?logo=pytorch&logoColor=white)](poise/engine/)
 [![RL](https://img.shields.io/badge/control-PID%20%2B%20PPO-764abc)](poise/control/)
@@ -118,7 +118,8 @@ thermal safety (`TEMP_MAX`) overrides throughput, always.
 - 🚦 **Two-tier control** — reactive PID + anticipatory PPO, with a hard thermal-safety override.
 - 🔬 **A go/no-go quality gate** — depth→quality cost is *measured before* the controller is built.
 - 🖥️ **Live dashboard + API** — FastAPI (`/v1/*`) + Prometheus + a React/Recharts UI.
-- 🧪 **Fully testable off-device** — 122 tests green with no GPU, no model, no board.
+- 🌐 **Universal** — auto-detects cuda/mps/cpu + jtop/nvml/mock; depth adapts to any model.
+- 🧪 **Fully testable off-device** — 149 tests green with no GPU, no model, no board.
 
 ---
 
@@ -129,18 +130,24 @@ thermal safety (`TEMP_MAX`) overrides throughput, always.
 pip install -r requirements.txt
 
 # 2. Prove it works in mock mode
-pytest                                  # 122 tests green, no board required
+pytest                                  # green, no board required
 
-# 3. Generate the synthetic demo data (public/synthetic only)
-python scripts/make_synthetic_data.py
+# 3. Universal bring-up — auto-detects device + telemetry, runs profile/deps/gate/eval.
+#    Works on Jetson, NVIDIA GPU box, Apple Silicon, or CPU-only.
+bash scripts/bringup.sh                              # uses your configured model
+bash scripts/bringup.sh --model sshleifer/tiny-gpt2  # validate the WHOLE pipeline on CPU
 
-# 4. Serve the API + live dashboard (uses the mock engine off-device)
+# 4. Serve the API + live dashboard (real engine on-device, mock engine off-device)
 bash scripts/serve.sh                   # FastAPI on :8000, Prometheus at /metrics
 cd dashboard && npm install && npm run dev   # → http://localhost:5173
 
 # For on-device use, copy and fill in credentials (never committed):
-cp .env.example .env                    # HF_TOKEN, POISE_DEVICE=cuda, ...
+cp .env.example .env                    # HF_TOKEN; POISE_DEVICE/TELEMETRY stay 'auto'
 ```
+
+> **Universal:** `POISE_DEVICE=auto` resolves cuda → mps → cpu; `POISE_TELEMETRY_BACKEND=auto`
+> picks jtop → nvml → mock; and the layer-budget config rescales to **any** decoder-only
+> model's actual layer count. See [`docs/bringup.md`](docs/bringup.md).
 
 ---
 
@@ -151,7 +158,9 @@ and demoable without the Jetson:
 
 | Concern | On the board | Off-device (laptop / CI / Kaggle) |
 | :--- | :--- | :--- |
-| Telemetry | jtop / tegrastats | `POISE_TELEMETRY_BACKEND=mock` thermal curve |
+| Device | `auto` → cuda (Jetson/GPU) / mps | `auto` → cpu |
+| Telemetry | `auto` → jtop / nvml / tegrastats | `auto` → mock thermal curve |
+| Model | any HF decoder-only (depth auto-adapts) | tiny model on CPU, or mock engine |
 | Thermal model | calibrated RC params | clearly-labeled **placeholder** params |
 | RL training | — | RC simulator + Gymnasium env (no model) |
 | Serving / dashboard | real `AdaptiveRunner` | mock engine reusing the **real** control loop |

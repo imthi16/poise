@@ -204,6 +204,59 @@ class TegrastatsReader(BaseTelemetryReader):
             self._proc = None
 
 
+class NvmlReader(BaseTelemetryReader):
+    """NVML backend for generic NVIDIA GPUs (desktop / server / workstation).
+
+    Reads temperature, power, clock, utilization, and a real throttle flag via the
+    NVIDIA Management Library (``pynvml``). This is what makes telemetry universal
+    beyond the Jetson — any CUDA box with the driver works.
+    """
+
+    def __init__(self, hz: float = 4.0, index: int = 0):
+        super().__init__(hz)
+        try:
+            import pynvml  # type: ignore
+        except Exception as e:  # pragma: no cover - off-device
+            raise RuntimeError(
+                "pynvml not available; `pip install nvidia-ml-py` on an NVIDIA box, or "
+                "use POISE_TELEMETRY_BACKEND=mock."
+            ) from e
+        self._pynvml = pynvml
+        pynvml.nvmlInit()
+        self._handle = pynvml.nvmlDeviceGetHandleByIndex(index)
+
+    def _sample_once(self) -> TelemetrySample:  # pragma: no cover - hardware path
+        n = self._pynvml
+        h = self._handle
+        temp = float(n.nvmlDeviceGetTemperature(h, n.NVML_TEMPERATURE_GPU))
+        power = float(n.nvmlDeviceGetPowerUsage(h)) / 1000.0  # mW -> W
+        clock = float(n.nvmlDeviceGetClockInfo(h, n.NVML_CLOCK_SM))
+        util = float(n.nvmlDeviceGetUtilizationRates(h).gpu)
+        throttled = False
+        try:
+            reasons = n.nvmlDeviceGetCurrentClocksThrottleReasons(h)
+            mask = (
+                n.nvmlClocksThrottleReasonSwThermalSlowdown
+                | n.nvmlClocksThrottleReasonHwThermalSlowdown
+                | n.nvmlClocksThrottleReasonHwPowerBrakeSlowdown
+                | n.nvmlClocksThrottleReasonSwPowerCap
+            )
+            throttled = bool(reasons & mask)
+        except Exception:
+            throttled = False
+        return TelemetrySample(
+            ts=time.time(), temp_c=temp, power_w=power, gpu_clock_mhz=clock,
+            gpu_util=util, throttled=throttled,
+        )
+
+    def stop(self) -> None:  # pragma: no cover - hardware path
+        super().stop()
+        try:
+            self._pynvml.nvmlShutdown()
+        except Exception:
+            pass
+
+
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #
@@ -238,4 +291,4 @@ def _jtop_throttled(j) -> bool:  # pragma: no cover - hardware path
     return False
 
 
-__all__ = ["BaseTelemetryReader", "JtopReader", "TegrastatsReader"]
+__all__ = ["BaseTelemetryReader", "JtopReader", "TegrastatsReader", "NvmlReader"]

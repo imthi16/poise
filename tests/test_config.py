@@ -13,7 +13,8 @@ def test_loads_defaults():
     assert cfg.depth.budget_set == (16, 20, 24, 28, 32)
     assert cfg.thermal.temp_setpoint_c < cfg.thermal.temp_max_c
     assert cfg.model.dtype in ("fp16", "bnb-4bit")
-    assert cfg.telemetry.backend == "mock"  # off-device default
+    assert cfg.telemetry.backend in ("auto", "mock")  # auto resolves to mock off-device
+    assert cfg.model.device in ("cuda", "mps", "cpu")  # "auto" resolved to a concrete target
 
 
 def test_depth_invariant_enforced(monkeypatch):
