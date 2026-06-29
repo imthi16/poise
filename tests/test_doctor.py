@@ -48,10 +48,11 @@ class _FakeHW:
     mps_available: bool = False
 
 
-def _patch(monkeypatch, *, present, import_err, cuda, hw=None):
+def _patch(monkeypatch, *, present, import_err, cuda, numpy_mismatch=False, hw=None):
     monkeypatch.setattr(hardware, "probe", lambda *_a, **_k: hw or _FakeHW())
     monkeypatch.setattr(hardware, "torch_present", lambda: present)
     monkeypatch.setattr(hardware, "torch_import_error", lambda: import_err)
+    monkeypatch.setattr(hardware, "torch_numpy_mismatch", lambda: numpy_mismatch)
     monkeypatch.setattr(hardware, "cuda_available", lambda: cuda)
     monkeypatch.setattr(hardware, "jetpack_info",
                         lambda: {"l4t": "R36.4.0", "jetpack": "6.1/6.2", "cuda": "12.6.0"})
@@ -75,6 +76,15 @@ def test_diagnose_flags_broken_torch_import_cusparselt(monkeypatch):
     report = format_report(info)
     assert "libcusparselt0" in report      # the exact apt fix is shown
     assert "cuSPARSELt" in report or "cusparselt" in report.lower()
+
+
+def test_diagnose_flags_numpy_too_new(monkeypatch):
+    """Jetson torch (NumPy 1.x build) + NumPy 2.x -> the _ARRAY_API breakage; pin numpy<2."""
+    _patch(monkeypatch, present=True, import_err=None, cuda=True, numpy_mismatch=True)
+    info = diagnose()
+    assert "numpy_too_new" in info["issues"]
+    report = format_report(info)
+    assert 'numpy<2' in report
 
 
 def test_diagnose_clean_when_no_issues(monkeypatch):

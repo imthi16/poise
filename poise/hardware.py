@@ -67,6 +67,21 @@ def torch_import_error() -> str | None:
         return str(e)
 
 
+def torch_numpy_mismatch() -> bool:
+    """True when a Jetson/NVIDIA torch build (compiled against NumPy 1.x) is paired with
+    NumPy 2.x — the cause of '_ARRAY_API not found' / 'compiled using NumPy 1.x' errors
+    that break the torch<->numpy bridge (and downstream cv2 / transformers imports)."""
+    try:
+        import numpy
+        import torch
+
+        is_nv_build = ".nv" in getattr(torch, "__version__", "")
+        numpy_major = int(numpy.__version__.split(".")[0])
+        return is_nv_build and numpy_major >= 2
+    except Exception:
+        return False
+
+
 def mps_available() -> bool:
     try:
         import torch
@@ -324,6 +339,7 @@ __all__ = [
     "tegrastats_available",
     "torch_present",
     "torch_import_error",
+    "torch_numpy_mismatch",
     "jetpack_info",
     "parse_l4t",
     "cuda_toolkit_version",

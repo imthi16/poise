@@ -22,6 +22,7 @@ def diagnose() -> dict:
         "telemetry_backend": hw.telemetry_backend,
         "torch_installed": hardware.torch_present(),       # package present (may not import)
         "torch_import_error": hardware.torch_import_error(),
+        "torch_numpy_mismatch": hardware.torch_numpy_mismatch(),
         "cuda_available": hardware.cuda_available(),
         "jetpack": hardware.jetpack_info(),
     }
@@ -54,6 +55,8 @@ def _issues(info: dict) -> list[str]:
         issues.append("torch_import_broken")
     elif info["is_jetson"] and not info["cuda_available"]:
         issues.append("jetson_torch_cpu_only")
+    if info.get("torch_numpy_mismatch"):
+        issues.append("numpy_too_new")
     if info["is_jetson"] and info["telemetry_backend"] == "mock":
         issues.append("jetson_no_telemetry")
     return issues
@@ -111,6 +114,12 @@ _FIX = {
     "torch_import_broken": (
         "torch is installed but FAILS to import — almost always a missing CUDA system\n"
         "    library that the Jetson wheel links against. Fix the specific lib below."
+    ),
+    "numpy_too_new": (
+        "the Jetson torch build was compiled against NumPy 1.x but NumPy 2.x is installed\n"
+        "    (causes '_ARRAY_API not found' and breaks cv2 / transformers). Pin NumPy < 2:\n"
+        '        pip install "numpy<2"\n'
+        "    (also: pip install -U pillow   if transformers errors on PIL.Image.Resampling)"
     ),
 }
 

@@ -18,7 +18,13 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("transformers")
 
-from transformers import LlamaConfig, LlamaForCausalLM  # noqa: E402
+# transformers lazy-loads submodules; the Llama import can fail at runtime on a broken
+# env (e.g. an old Pillow that lacks Image.Resampling, or a torch<->numpy ABI mismatch).
+# Skip the whole module cleanly rather than erroring collection and taking the suite down.
+try:
+    from transformers import LlamaConfig, LlamaForCausalLM  # noqa: E402
+except Exception as e:  # noqa: BLE001
+    pytest.skip(f"transformers Llama unavailable in this env: {e}", allow_module_level=True)
 
 from poise.config import load_config  # noqa: E402
 from poise.hardware import adapt_depth_to_model  # noqa: E402
