@@ -67,10 +67,14 @@ def collect_trace(
 
 
 def set_power_mode(mode: str) -> bool:
-    """Set the Jetson nvpmodel power mode. No-op (returns False) off-device."""
+    """Set the Jetson nvpmodel power mode. Returns False (quietly) off-device or when
+    not run as root. ``nvpmodel``/``jetson_clocks`` need sudo; their stdout/stderr are
+    captured so a permission failure does not spam the console — run calibration with
+    ``sudo`` to actually pin the power mode."""
     try:  # pragma: no cover - hardware path
-        subprocess.run(["nvpmodel", "-m", _nvpmodel_index(mode)], check=True)
-        subprocess.run(["jetson_clocks"], check=False)
+        subprocess.run(["nvpmodel", "-m", _nvpmodel_index(mode)], check=True,
+                       capture_output=True, text=True)
+        subprocess.run(["jetson_clocks"], check=False, capture_output=True, text=True)
         return True
     except Exception:
         return False

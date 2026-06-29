@@ -104,7 +104,8 @@ def test_adapt_depth_keeps_invariants_for_many_sizes():
         assert d.budget_set[0] >= d.layer_min and d.budget_set[-1] == n
 
 
-def test_config_resolves_auto_device():
-    """`device: auto` in the committed default must resolve to a concrete target."""
+def test_config_resolves_auto_device(monkeypatch):
+    """`device: auto` must resolve to a concrete target on any machine."""
+    monkeypatch.setenv("POISE_DEVICE", "auto")
     cfg = load_config()
     assert cfg.model.device in ("cuda", "mps", "cpu")

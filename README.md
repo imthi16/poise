@@ -7,7 +7,7 @@
 **An on-device LLM engine that varies per-token transformer depth in response to live hardware physics.**
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-149%20passing-2ea44f)](tests/)
+[![Tests](https://img.shields.io/badge/tests-150%20passing-2ea44f)](tests/)
 [![Off-device](https://img.shields.io/badge/off--device-mock%20mode-2ea44f)](#-off-device-by-design)
 [![PyTorch](https://img.shields.io/badge/adaptive%20path-PyTorch%20eager-ee4c2c?logo=pytorch&logoColor=white)](poise/engine/)
 [![RL](https://img.shields.io/badge/control-PID%20%2B%20PPO-764abc)](poise/control/)
@@ -119,7 +119,7 @@ thermal safety (`TEMP_MAX`) overrides throughput, always.
 - 🔬 **A go/no-go quality gate** — depth→quality cost is *measured before* the controller is built.
 - 🖥️ **Live dashboard + API** — FastAPI (`/v1/*`) + Prometheus + a React/Recharts UI.
 - 🌐 **Universal** — auto-detects cuda/mps/cpu + jtop/nvml/mock; depth adapts to any model.
-- 🧪 **Fully testable off-device** — 149 tests green with no GPU, no model, no board.
+- 🧪 **Fully testable off-device** — 150 tests green with no GPU, no model, no board.
 
 ---
 

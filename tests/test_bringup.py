@@ -19,14 +19,18 @@ def test_profile_and_deps_always_ok():
     assert any(d in res["profile"].detail for d in ("cuda", "mps", "cpu"))
 
 
-def test_model_step_skips_without_torch_or_model():
-    """Off-device (no torch / no gated model) the model step skips cleanly, not crash."""
+def test_model_step_skips_when_model_unavailable(monkeypatch):
+    """The model step skips cleanly (never crashes) when the model can't be loaded.
+
+    Point at a nonexistent local path + offline so the load fails fast and we never
+    risk pulling/loading a real multi-GB model during the unit suite, on any host.
+    """
+    monkeypatch.setenv("POISE_MODEL_PATH", "/nonexistent/poise-test-model")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     cfg = load_config()
     res = _by_name(run_checklist(cfg, ["model"]))
-    # either skipped (no torch / model) or ok (if a model happens to be available)
-    assert res["model"].status in ("skipped", "ok")
-    if res["model"].status == "skipped":
-        assert "tiny-gpt2" in res["model"].detail or "MODEL_ID" in res["model"].detail
+    assert res["model"].status == "skipped"
+    assert "tiny-gpt2" in res["model"].detail or "MODEL_ID" in res["model"].detail
 
 
 def test_gate_skips_without_model():
@@ -36,10 +40,16 @@ def test_gate_skips_without_model():
     assert "model" in res["gate"].detail.lower()
 
 
-def test_calibrate_skips_on_mock_telemetry():
-    """Calibration must refuse mock sensors — synthetic sweeps are not real params."""
+def test_calibrate_skips_on_mock_telemetry(monkeypatch):
+    """Calibration must refuse mock sensors — synthetic sweeps are not real params.
+
+    Run WITHOUT the profile step (so the decision comes from cfg, not the host's real
+    telemetry) and with backend forced to mock, so this is hermetic and never triggers
+    a real multi-minute hardware sweep on a Jetson/GPU box.
+    """
+    monkeypatch.setenv("POISE_TELEMETRY_BACKEND", "mock")
     cfg = load_config()
-    res = _by_name(run_checklist(cfg, ["profile", "calibrate"]))
+    res = _by_name(run_checklist(cfg, ["calibrate"]))
     assert res["calibrate"].status == "skipped"
     assert "mock" in res["calibrate"].detail.lower()
 
@@ -53,13 +63,16 @@ def test_eval_runs_against_mock_engine_offdevice():
     assert "tok/s" in res["eval"].detail
 
 
-def test_full_default_checklist_no_crash():
+def test_full_default_checklist_no_crash(monkeypatch):
+    # force the model unavailable so the suite never loads a real multi-GB model
+    monkeypatch.setenv("POISE_MODEL_PATH", "/nonexistent/poise-test-model")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     cfg = load_config()
     results = run_checklist(cfg, None)  # default steps
     names = [r.name for r in results]
     assert names == ["profile", "deps", "model", "gate", "eval"]
     assert all(r.status in ("ok", "skipped", "failed") for r in results)
-    # nothing should hard-fail off-device
+    # nothing should hard-fail (model/gate skip cleanly; eval runs the mock engine)
     assert not any(r.status == "failed" for r in results), [r.line() for r in results]
 
 

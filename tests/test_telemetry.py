@@ -94,7 +94,27 @@ def test_tegrastats_parse():
     assert s.gpu_util == 99.0
 
 
-def test_factory_returns_mock_off_device(cfg):
-    r = make_reader(cfg)
+def test_factory_returns_mock_for_mock_backend(monkeypatch):
+    """Explicit mock backend always yields a MockTelemetryReader on any host."""
+    monkeypatch.setenv("POISE_TELEMETRY_BACKEND", "mock")
+    from poise.config import load_config
+
+    r = make_reader(load_config())
+    assert isinstance(r, MockTelemetryReader)
+    assert isinstance(r.read(), TelemetrySample)
+
+
+def test_factory_auto_returns_valid_reader(monkeypatch):
+    """`auto` resolves to whatever this machine supports (jtop/nvml on real hardware,
+    mock otherwise) — always a usable reader, never a crash."""
+    from poise import hardware
+    from poise.config import load_config
+
+    # force the resolution to mock so this is host-independent, but exercise the auto path
+    monkeypatch.setattr(hardware, "is_jetson", lambda: False)
+    monkeypatch.setattr(hardware, "nvml_available", lambda: False)
+    monkeypatch.setattr(hardware, "cuda_available", lambda: False)
+    monkeypatch.setenv("POISE_TELEMETRY_BACKEND", "auto")
+    r = make_reader(load_config())
     assert isinstance(r, MockTelemetryReader)
     assert isinstance(r.read(), TelemetrySample)
