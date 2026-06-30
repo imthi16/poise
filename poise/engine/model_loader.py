@@ -120,8 +120,19 @@ def load_model(cfg: "PoiseConfig", *, strict_layers: bool = False) -> Tuple[Any,
     if device == "cuda" and "quantization_config" not in kwargs:
         kwargs["device_map"] = {"": 0}
 
+    # 🔒 CLAUDE.md §2: run the adaptive path in EAGER attention — POISE needs full
+    # control over the per-layer loop, and eager avoids SDPA/flash kwargs (e.g.
+    # `enable_gqa`) that skew between transformers and an older Jetson torch's SDPA.
+    kwargs["attn_implementation"] = "eager"
+
     tokenizer = AutoTokenizer.from_pretrained(model_ref, token=token)
-    model = AutoModelForCausalLM.from_pretrained(model_ref, **kwargs)
+    try:
+        model = AutoModelForCausalLM.from_pretrained(model_ref, **kwargs)
+    except (TypeError, ValueError) as e:
+        if "attn_implementation" not in str(e):
+            raise
+        kwargs.pop("attn_implementation", None)  # very old transformers: drop the kwarg
+        model = AutoModelForCausalLM.from_pretrained(model_ref, **kwargs)
     # Place on mps/cpu when not using a device_map / quantization.
     if device in ("mps", "cpu") and "device_map" not in kwargs:
         try:

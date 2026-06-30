@@ -36,6 +36,9 @@ def _tiny_llama(n_layers=4, vocab=128, hidden=64):
         num_hidden_layers=n_layers, num_attention_heads=4, num_key_value_heads=4,
         max_position_embeddings=128,
     )
+    # Eager attention: matches POISE's adaptive path and avoids SDPA `enable_gqa`
+    # skew between transformers and an older (Jetson) torch.
+    cfg._attn_implementation = "eager"
     torch.manual_seed(0)
     return LlamaForCausalLM(cfg).eval()
 
