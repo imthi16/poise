@@ -273,3 +273,7 @@ __all__ = [
     "sweep_weights",
     "main",
 ]
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

@@ -15,4 +15,4 @@ cd "$(dirname "$0")/.."
 # Ensure a (synthetic) corpus exists; for a real run pass --corpus <public-corpus.txt>.
 [ -f data/synthetic/ppl_corpus.txt ] || python3 scripts/make_synthetic_data.py >/dev/null 2>&1 || true
 
-exec python3 -m poise.adaptation.layerskip "$@"
+exec python3 -m poise.adaptation "$@"
