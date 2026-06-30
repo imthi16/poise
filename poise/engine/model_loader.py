@@ -12,6 +12,7 @@ The rest of the stack depends only on these accessors' *shapes*, not on a live m
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Tuple
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -61,7 +62,19 @@ def load_model(cfg: "PoiseConfig", *, strict_layers: bool = False) -> Tuple[Any,
     torch, transformers = _require_torch()
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
+    # Prefer a local snapshot path, but if it's set and doesn't exist, fall back to the
+    # hub model_id instead of failing with a confusing "Repo id must be in the form..."
+    # (a common gotcha when POISE_MODEL_PATH from .env points at a missing dir).
     model_ref = cfg.model.model_path or cfg.model.model_id
+    if cfg.model.model_path and not Path(cfg.model.model_path).exists():
+        import warnings
+
+        warnings.warn(
+            f"POISE_MODEL_PATH {cfg.model.model_path!r} does not exist; downloading "
+            f"{cfg.model.model_id!r} from the hub instead.",
+            stacklevel=2,
+        )
+        model_ref = cfg.model.model_id
     token = cfg.model.hf_token
 
     device = cfg.model.device
