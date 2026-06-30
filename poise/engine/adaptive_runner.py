@@ -375,8 +375,21 @@ class AdaptiveRunner:
         except Exception:  # pragma: no cover - older API computes rotary inside layers
             return None
 
-    def _causal_mask(self, hidden, T):  # pragma: no cover - validated on-device
-        return None  # transformers builds the causal mask internally when None
+    def _causal_mask(self, hidden, T):
+        """Additive 4D causal mask [1, 1, T, T] for the manual prefill.
+
+        Required for EAGER attention: passing None would let prefill tokens attend
+        bidirectionally (only the model's own forward builds the mask). 0 on/below the
+        diagonal, -inf above. Decode (single query over the cache) needs no mask.
+        """
+        import torch
+
+        if T <= 1:
+            return None
+        min_val = torch.finfo(hidden.dtype).min
+        m = torch.full((T, T), min_val, dtype=hidden.dtype, device=hidden.device)
+        m = torch.triu(m, diagonal=1)
+        return m.unsqueeze(0).unsqueeze(0)
 
     def _apply_repair(self, model, layers, cache, plan, state):  # pragma: no cover
         """Hook for recompute_on_demand / propagate_hidden repair (on-device)."""
