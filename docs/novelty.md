@@ -51,16 +51,42 @@ the honest responses (CLAUDE.md §9) are:
 
 We do **not** paper over a quality collapse to hit the target.
 
-## Measured depth→quality results
+## Measured depth→quality results — the step-3 gate
 
-> **Empty by design.** No KL / perplexity / accuracy numbers are written here until
-> `calibration/quality_profile.py` (the gate) and `eval/report.py` have produced them
-> with variance on the real model + board. The usable `LAYER_MIN` will be read off the
-> measured table via `recommend_layer_min(...)`, not guessed.
+### (1) Stock model, NAIVE early-exit — the gate's go/no-go finding
 
-| depth | mean KL vs full-32 | perplexity | top-1 agreement | task acc | usable? |
-|---|---|---|---|---|---|
-| _pending gate run_ | — | — | — | — | — |
+Measured by `calibration/quality_profile.py` on **DeepSeek-R1-Distill-Llama-8B** (32
+layers, fp16) on a Jetson AGX Orin GPU, naive early-exit (projecting an un-calibrated
+intermediate hidden state through the final LM head):
 
-When populated, this table is the evidence that determines whether the quality
-premise holds and what `LAYER_MIN` actually is.
+| depth | mean KL vs full-32 | perplexity | top-1 agreement |
+|---|---|---|---|
+| 16 | 7.24 | 615,631 | 0.017 |
+| 20 | 6.30 | 278,734 | 0.076 |
+| 24 | 5.20 | 109,711 | 0.130 |
+| 28 | 3.91 | 34,098 | 0.146 |
+| 32 (full) | 0.00 | 1,959 | 1.000 |
+
+**`recommend_layer_min(KL ≤ 0.1) = 32` → no usable reduced depth.** Dropping even 4 of
+32 layers gives ~17× worse perplexity and 15% next-token agreement. **The ≤2–3%
+quality-loss hypothesis is *falsified* for naive layer-skipping on the stock model.**
+(Absolute perplexity is inflated by a short synthetic eval set; the *relative KL* is the
+architecture-driven signal and is what matters.) This is exactly the central risk §9
+predicted — and the gate caught it before any controller was built on a false premise.
+
+### (2) Decision (§9 option a): LayerSkip-style adaptation — IN PROGRESS
+
+Because there is no usable band, we add a LayerSkip-style adaptation step
+(`poise/adaptation/layerskip.py`): a LoRA fine-tune with an **early-exit loss** that
+trains the shared norm+head to predict the next token from intermediate hidden states,
+calibrating them to the head. The mechanism is validated on a tiny model
+(`test_layerskip.py`: training cuts the shallow-depth loss >50%); the full adaptation on
+the 8B + the **post-adaptation gate table** are the next measurement.
+
+| depth | mean KL vs full-32 (ADAPTED) | usable? |
+|---|---|---|
+| _pending adaptation run_ | — | — |
+
+The post-adaptation gate is the evidence that determines the *real* usable `LAYER_MIN`
+and whether the quality premise holds after calibration. No headline energy/throughput/
+quality number is asserted until `eval/report.py` produces it with variance.

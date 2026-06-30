@@ -12,6 +12,7 @@ The rest of the stack depends only on these accessors' *shapes*, not on a live m
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Tuple
 
@@ -139,6 +140,21 @@ def load_model(cfg: "PoiseConfig", *, strict_layers: bool = False) -> Tuple[Any,
             model = model.to(device)
         except Exception:  # pragma: no cover - best effort
             pass
+
+    # Optionally load a LayerSkip LoRA adapter so the engine runs the ADAPTED model
+    # (calibrated for variable depth). POISE_ADAPTER_PATH => a saved peft adapter dir.
+    adapter_path = os.environ.get("POISE_ADAPTER_PATH")
+    if adapter_path:
+        try:  # pragma: no cover - requires peft + a trained adapter
+            from peft import PeftModel
+
+            model = PeftModel.from_pretrained(model, adapter_path)
+            print(f"[POISE] loaded LayerSkip adapter from {adapter_path}")
+        except Exception as e:
+            import warnings
+
+            warnings.warn(f"could not load adapter {adapter_path!r}: {e}", stacklevel=2)
+
     model.eval()
 
     n = get_num_layers(model)
@@ -162,8 +178,27 @@ def load_model(cfg: "PoiseConfig", *, strict_layers: bool = False) -> Tuple[Any,
 # --------------------------------------------------------------------------- #
 # Structural accessors — navigate common decoder-only layouts (Llama-family).
 # --------------------------------------------------------------------------- #
+def unwrap(model: Any) -> Any:
+    """Peel PEFT/LoRA wrappers to reach the underlying HF causal-LM, so the structural
+    accessors work on an adapted model too.
+
+    Only PEFT wrappers are peeled: a *plain* HF model exposes a ``.base_model`` property
+    pointing at its inner transformer (which has no ``lm_head``), so we must NOT descend
+    into that — we key off the PEFT class names instead.
+    """
+    seen = 0
+    while type(model).__name__.startswith("Peft") and hasattr(model, "base_model") and seen < 6:
+        model = model.base_model
+        seen += 1
+    # peft's LoraModel/tuner holds the real model in `.model`
+    if type(model).__name__ in ("LoraModel", "BaseTuner") and hasattr(model, "model"):
+        model = model.model
+    return model
+
+
 def _base(model: Any) -> Any:
     """Return the inner base model that holds ``.layers`` / ``.norm`` / embeddings."""
+    model = unwrap(model)
     if hasattr(model, "model") and hasattr(model.model, "layers"):
         return model.model
     if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
@@ -189,6 +224,7 @@ def get_num_layers(model: Any) -> int:
 
 
 def get_lm_head(model: Any) -> Any:
+    model = unwrap(model)
     for attr in ("lm_head", "embed_out", "output"):
         head = getattr(model, attr, None)
         if head is not None:

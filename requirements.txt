@@ -31,6 +31,9 @@ pytest>=8.0
 # accelerate>=0.30
 # bitsandbytes>=0.43          # only for POISE_DTYPE=bnb-4bit
 
+# --- LayerSkip adaptation (LoRA early-exit fine-tune; on GPU) ---
+# peft>=0.11                  # only needed for poise/adaptation (CLAUDE.md §9 a)
+
 # --- Baselines (optional) ---
 # llama-cpp-python>=0.2.79    # GGUF Q4_K_M static baseline
 # tensorrt-llm                # optional fixed-depth baseline

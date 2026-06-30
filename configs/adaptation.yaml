@@ -1,0 +1,44 @@
+# LayerSkip-style adaptation (CLAUDE.md §9 option a).
+#
+# The step-3 GATE measured that NAIVE early-exit collapses quality on the stock 8B
+# (no usable reduced depth). This step fine-tunes the model so intermediate layers ARE
+# calibrated to the LM head — an EARLY-EXIT LOSS over a parameter-efficient LoRA adapter
+# (+ optional layer dropout). After adaptation, re-run the gate: the depth->KL curve
+# should become gentle and a usable LAYER_MIN should emerge.
+#
+# Trains OFF-DEVICE (Kaggle/GPU) or on the Jetson. Synthetic/public corpora only.
+
+adaptation:
+  method: layerskip
+
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+  early_exit:
+    # Exit depths to supervise (full depth is always included to preserve base quality).
+    # Use the budget set; the trainer maps these to the model's actual layer count.
+    depths: [16, 20, 24, 28, 32]
+    full_weight: 1.0        # weight on the full-depth next-token loss
+    ee_weight: 1.0          # base weight on early-exit losses
+    curriculum: linear      # none | linear  (linear => deeper exits weighted ~ d/full)
+
+  layer_dropout:
+    enabled: false          # optional stochastic-depth during training (LayerSkip)
+    max_p: 0.1
+
+  train:
+    # Public/synthetic text only. Point this at a real/public corpus for a real run
+    # (e.g. a wikitext slice); the synthetic ppl corpus is a tiny smoke default.
+    corpus: ./data/synthetic/ppl_corpus.txt
+    max_length: 512
+    batch_size: 1
+    grad_accum: 8
+    lr: 1.0e-4
+    steps: 500
+    warmup: 20
+    seed: 0
+    log_every: 25
+    out_dir: ./data/results/layerskip_adapter
