@@ -87,20 +87,81 @@ def early_exit_loss(
     return total, per_depth
 
 
+def _disable_adapter(model):
+    """Context manager that runs ``model`` as the FROZEN BASE (LoRA off) if it's a peft
+    model; a no-op otherwise (a plain model is already the base)."""
+    import contextlib
+
+    fn = getattr(model, "disable_adapter", None)
+    if callable(fn):
+        try:
+            return fn()
+        except Exception:  # pragma: no cover
+            pass
+    return contextlib.nullcontext()
+
+
+def distill_loss(
+    model: Any,
+    input_ids: Any,
+    depths: Sequence[int],
+    *,
+    full_depth: int,
+    attention_mask: Any = None,
+    weights: Optional[Mapping[int, float]] = None,
+):
+    """Self-distillation objective (the principled LayerSkip target).
+
+    Teacher = the FROZEN BASE model's full-depth distribution (LoRA disabled, no grad).
+    For each depth ``d`` the loss is ``KL(teacher_full || student_depth_d)`` — i.e. train
+    each exit (incl. full) to MATCH the base full-depth output. This is exactly the gate
+    metric (KL vs full), and anchoring full depth to the base preserves base quality
+    instead of retraining it (which is what the plain-CE objective damaged).
+    """
+    import torch
+    import torch.nn.functional as F
+
+    with torch.no_grad():
+        with _disable_adapter(model):
+            t = model(input_ids=input_ids, attention_mask=attention_mask,
+                      use_cache=False).logits[:, :-1, :].float()
+        t_logp = F.log_softmax(t, dim=-1)
+        t_p = t_logp.exp()
+
+    out = model(input_ids=input_ids, attention_mask=attention_mask,
+                output_hidden_states=True, use_cache=False)
+    per = {}
+    for d in depths:
+        if d >= full_depth:
+            s = out.logits[:, :-1, :].float()
+        else:
+            s = project_to_logits(out.hidden_states[d][:, :-1, :], model).float()
+        s_logp = F.log_softmax(s, dim=-1)
+        per[d] = (t_p * (t_logp - s_logp)).sum(-1).mean()  # KL(teacher || student)
+
+    w = dict(weights) if weights is not None else {d: 1.0 for d in depths}
+    total = sum(w[d] * per[d] for d in depths)
+    return total, per
+
+
 def evaluate_depth_losses(
-    model: Any, batches: Sequence[Any], depths: Sequence[int], *, full_depth: int
+    model: Any, batches: Sequence[Any], depths: Sequence[int], *, full_depth: int,
+    loss_fn=None,
 ) -> dict[int, float]:
-    """Mean per-depth cross-entropy over ``batches`` (a quick before/after adaptation
-    check). Lower at shallow depths == intermediate states better calibrated to the head."""
+    """Mean per-depth loss over ``batches`` (a quick before/after adaptation check).
+
+    With ``loss_fn=distill_loss`` this reports the GATE METRIC (KL vs full) per depth, so
+    'after' values are directly comparable to the gate's ``mean_kl_vs_full``."""
     import torch
 
+    loss_fn = loss_fn or early_exit_loss
     sums = {d: 0.0 for d in depths}
     n = 0
     model_was_training = model.training
     model.eval()
     with torch.no_grad():
         for input_ids in batches:
-            _, per = early_exit_loss(model, input_ids, depths, full_depth=full_depth)
+            _, per = loss_fn(model, input_ids, depths, full_depth=full_depth)
             for d in depths:
                 sums[d] += float(per[d])
             n += 1
@@ -197,6 +258,12 @@ def train_layerskip(
         curriculum=str(ee.get("curriculum", "linear")),
     )
 
+    # Objective: 'distill' (default) trains each exit to MATCH the frozen base full-depth
+    # distribution (the gate metric) and anchors full depth to base => preserves base
+    # quality. 'ce' is plain next-token CE (can damage base quality on small corpora).
+    objective = str(ee.get("objective", "distill"))
+    loss_fn = distill_loss if objective == "distill" else early_exit_loss
+
     model = add_lora(model, adaptation.get("lora", {}))
     model.train()
     device = next(model.parameters()).device
@@ -214,17 +281,19 @@ def train_layerskip(
             blk = rng.choice(blocks)
             yield torch.tensor([blk], device=device)
 
-    before = evaluate_depth_losses(model, list(batches(8)), depths, full_depth=full_depth)
+    # report the GATE METRIC (KL vs full) before/after, comparable to the gate table
+    before = evaluate_depth_losses(model, list(batches(8)), depths,
+                                   full_depth=full_depth, loss_fn=distill_loss)
 
     opt = torch.optim.AdamW((p for p in model.parameters() if p.requires_grad),
                             lr=float(tr.get("lr", 1e-4)))
     grad_accum = int(tr.get("grad_accum", 8))
     log_every = int(tr.get("log_every", 25))
+    print(f"[POISE] objective={objective}  depths={depths}  steps={steps}")
     model.train()
     step = 0
     for input_ids in batches(steps * grad_accum):
-        total, per = early_exit_loss(model, input_ids, depths,
-                                     full_depth=full_depth, weights=weights)
+        total, per = loss_fn(model, input_ids, depths, full_depth=full_depth, weights=weights)
         (total / grad_accum).backward()
         if (step + 1) % grad_accum == 0:
             opt.step()
@@ -235,12 +304,13 @@ def train_layerskip(
                   f"d{shallow}={float(per[shallow]):.4f}  d{full_depth}={float(per[full_depth]):.4f}")
         step += 1
 
-    after = evaluate_depth_losses(model, list(batches(8)), depths, full_depth=full_depth)
+    after = evaluate_depth_losses(model, list(batches(8)), depths,
+                                  full_depth=full_depth, loss_fn=distill_loss)
 
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     model.save_pretrained(out_dir)
     print(f"[POISE] saved LayerSkip adapter to {out_dir}")
-    print("per-depth loss  (before -> after):")
+    print("per-depth KL vs full  (before -> after)   [the gate metric]:")
     for d in depths:
         print(f"  depth {d:3d}:  {before[d]:.4f} -> {after[d]:.4f}")
     print("Set POISE_ADAPTER_PATH to this dir and re-run the gate "
@@ -269,6 +339,7 @@ def main() -> None:  # pragma: no cover - CLI
 __all__ = [
     "loss_weights",
     "early_exit_loss",
+    "distill_loss",
     "evaluate_depth_losses",
     "add_lora",
     "load_text_blocks",

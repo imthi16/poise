@@ -21,7 +21,9 @@ try:
 except Exception as e:  # noqa: BLE001
     pytest.skip(f"transformers Llama unavailable: {e}", allow_module_level=True)
 
-from poise.adaptation.layerskip import early_exit_loss, evaluate_depth_losses  # noqa: E402
+from poise.adaptation.layerskip import (  # noqa: E402
+    distill_loss, early_exit_loss, evaluate_depth_losses,
+)
 
 
 def _tiny_llama(n_layers=4, vocab=64, hidden=32):
@@ -110,6 +112,45 @@ def test_training_calibrates_intermediate_depth():
 
     # the shallow exit becomes a much better predictor (this is what lowers gate KL)
     assert after < before * 0.5, f"shallow-depth loss did not improve: {before:.3f} -> {after:.3f}"
+
+
+def test_distill_full_is_zero_and_shallow_equals_gate_kl():
+    """Distillation objective: full-depth KL==0 (base preserved) and the shallow term
+    IS the gate metric (KL of full vs the shallow projection)."""
+    from poise.calibration.quality_profile import kl_divergence_logits
+    from poise.engine.early_exit import project_to_logits
+
+    model = _tiny_llama()
+    ids = torch.randint(1, 64, (1, 16))
+    with torch.no_grad():
+        _, per = distill_loss(model, ids, [2, 4], full_depth=4)
+        out = model(ids, output_hidden_states=True, use_cache=False)
+        full = out.logits[:, :-1, :].float().numpy().reshape(-1, out.logits.size(-1))
+        shallow = project_to_logits(out.hidden_states[2][:, :-1, :], model)
+        shallow = shallow.float().numpy().reshape(-1, shallow.size(-1))
+    assert float(per[4]) < 1e-5  # teacher full == student full => base anchored
+    gate_kl = float(kl_divergence_logits(full, shallow).mean())
+    assert float(per[2]) == pytest.approx(gate_kl, rel=1e-3)
+
+
+def test_distill_training_reduces_shallow_kl():
+    """Training the distill objective drives the shallow exit toward the full-depth
+    distribution — i.e. directly lowers the gate KL (without a CE base-quality hit)."""
+    model = _tiny_llama(n_layers=4)
+    model.train()
+    ids = torch.randint(1, 64, (1, 24))
+    with torch.no_grad():
+        _, p0 = distill_loss(model, ids, [2, 4], full_depth=4)
+    before = float(p0[2])
+    opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    for _ in range(60):
+        total, _ = distill_loss(model, ids, [2, 4], full_depth=4)
+        opt.zero_grad()
+        total.backward()
+        opt.step()
+    with torch.no_grad():
+        _, p1 = distill_loss(model, ids, [2, 4], full_depth=4)
+    assert float(p1[2]) < before * 0.7, f"shallow KL did not drop: {before:.3f} -> {float(p1[2]):.3f}"
 
 
 def test_evaluate_depth_losses_runs():

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from .layerskip import (
     early_exit_loss,
+    distill_loss,
     loss_weights,
     evaluate_depth_losses,
     add_lora,
@@ -23,6 +24,7 @@ from .layerskip import (
 
 __all__ = [
     "early_exit_loss",
+    "distill_loss",
     "loss_weights",
     "evaluate_depth_losses",
     "add_lora",

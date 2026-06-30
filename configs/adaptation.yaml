@@ -21,8 +21,14 @@ adaptation:
     # Exit depths to supervise (full depth is always included to preserve base quality).
     # Use the budget set; the trainer maps these to the model's actual layer count.
     depths: [16, 20, 24, 28, 32]
-    full_weight: 1.0        # weight on the full-depth next-token loss
-    ee_weight: 1.0          # base weight on early-exit losses
+    # objective:
+    #   distill (default) -> train each exit to MATCH the frozen base full-depth output
+    #     (== the gate metric, KL-vs-full) and anchor full depth to base => PRESERVES
+    #     base quality. Recommended.
+    #   ce -> plain next-token cross-entropy (can damage base quality on small corpora).
+    objective: distill
+    full_weight: 1.0        # weight on the full-depth term
+    ee_weight: 1.0          # base weight on early-exit terms
     curriculum: linear      # none | linear  (linear => deeper exits weighted ~ d/full)
 
   layer_dropout:
