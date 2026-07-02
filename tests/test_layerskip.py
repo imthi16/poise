@@ -153,6 +153,23 @@ def test_distill_training_reduces_shallow_kl():
     assert float(p1[2]) < before * 0.7, f"shallow KL did not drop: {before:.3f} -> {float(p1[2]):.3f}"
 
 
+def test_anchor_drift_warning_flags_the_measured_leak():
+    """The exact failure the first real 8B run produced: KL(base||adapted_full)=0.94
+    at full_weight=1.0. The guard must flag it and point at the fix."""
+    from poise.adaptation.layerskip import anchor_drift_warning
+
+    after = {16: 3.15, 20: 2.36, 24: 1.82, 28: 1.47, 32: 0.9371}
+    msg = anchor_drift_warning(after, full_depth=32)
+    assert msg is not None
+    assert "full_weight" in msg and "0.937" in msg
+
+
+def test_anchor_drift_warning_silent_when_anchor_holds():
+    from poise.adaptation.layerskip import anchor_drift_warning
+
+    assert anchor_drift_warning({16: 1.0, 32: 0.02}, full_depth=32) is None
+
+
 def test_evaluate_depth_losses_runs():
     model = _tiny_llama()
     batches = [torch.randint(1, 64, (1, 16)) for _ in range(3)]

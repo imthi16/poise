@@ -144,6 +144,31 @@ def distill_loss(
     return total, per
 
 
+# If the adapted model's FULL-depth output drifts more than this (in nats of KL) from
+# the frozen base, base quality is no longer "preserved" — the anchor leaked.
+ANCHOR_DRIFT_THRESHOLD = 0.1
+
+
+def anchor_drift_warning(
+    after: Mapping[int, float], full_depth: int, threshold: float = ANCHOR_DRIFT_THRESHOLD
+) -> Optional[str]:
+    """Honesty guard: flag when the full-depth anchor leaked during adaptation.
+
+    ``after[full_depth]`` is KL(base_full || adapted_full). The first real 8B run
+    measured 0.94 here at full_weight=1.0 — the optimizer traded base fidelity for
+    shallow-exit gains. Returns a warning message, or None if the anchor held.
+    """
+    drift = float(after.get(full_depth, 0.0))
+    if drift > threshold:
+        return (
+            f"⚠ ANCHOR LEAK: full-depth output drifted KL={drift:.3f} from the frozen "
+            f"base (> {threshold}). Base quality is NOT preserved. Raise "
+            f"early_exit.full_weight (or --full-weight) and/or lower lr/steps, then "
+            f"re-train — do not use this adapter for quality claims."
+        )
+    return None
+
+
 def evaluate_depth_losses(
     model: Any, batches: Sequence[Any], depths: Sequence[int], *, full_depth: int,
     loss_fn=None,
@@ -310,12 +335,21 @@ def train_layerskip(
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     model.save_pretrained(out_dir)
     print(f"[POISE] saved LayerSkip adapter to {out_dir}")
-    print("per-depth KL vs full  (before -> after)   [the gate metric]:")
+    print("per-depth KL vs frozen base  (before -> after)   [the gate metric]:")
     for d in depths:
         print(f"  depth {d:3d}:  {before[d]:.4f} -> {after[d]:.4f}")
+    drift_warning = anchor_drift_warning(after, full_depth)
+    if drift_warning:
+        print(drift_warning)
+    else:
+        print(f"  ✓ anchor held: full-depth drift {after[full_depth]:.4f} <= "
+              f"{ANCHOR_DRIFT_THRESHOLD} (base quality preserved)")
     print("Set POISE_ADAPTER_PATH to this dir and re-run the gate "
           "(bash scripts/bringup.sh) to measure the new depth->quality curve.")
-    return {"out_dir": out_dir, "depths": depths, "before": before, "after": after}
+    return {
+        "out_dir": out_dir, "depths": depths, "before": before, "after": after,
+        "anchor_leaked": drift_warning is not None,
+    }
 
 
 def main() -> None:  # pragma: no cover - CLI
@@ -327,12 +361,20 @@ def main() -> None:  # pragma: no cover - CLI
     ap.add_argument("--steps", type=int, default=None)
     ap.add_argument("--out", default=None)
     ap.add_argument("--corpus", default=None)
+    ap.add_argument("--full-weight", type=float, default=None,
+                    help="anchor weight on the full-depth term (overrides adaptation.yaml)")
+    ap.add_argument("--lr", type=float, default=None,
+                    help="learning rate (overrides adaptation.yaml)")
     args = ap.parse_args()
 
     cfg = load_config()
     adaptation = load_adaptation_config()
     if args.corpus:
         adaptation.setdefault("train", {})["corpus"] = args.corpus
+    if args.full_weight is not None:
+        adaptation.setdefault("early_exit", {})["full_weight"] = args.full_weight
+    if args.lr is not None:
+        adaptation.setdefault("train", {})["lr"] = args.lr
     train_layerskip(cfg, adaptation, out_dir=args.out, steps=args.steps)
 
 
@@ -340,6 +382,8 @@ __all__ = [
     "loss_weights",
     "early_exit_loss",
     "distill_loss",
+    "anchor_drift_warning",
+    "ANCHOR_DRIFT_THRESHOLD",
     "evaluate_depth_losses",
     "add_lora",
     "load_text_blocks",

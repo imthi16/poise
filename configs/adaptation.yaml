@@ -27,7 +27,11 @@ adaptation:
     #     base quality. Recommended.
     #   ce -> plain next-token cross-entropy (can damage base quality on small corpora).
     objective: distill
-    full_weight: 1.0        # weight on the full-depth term
+    # Anchor strength. At full_weight=1.0 the first real 8B run measured 0.94 nats of
+    # full-depth drift from the frozen base (the shallow terms outweighed the anchor
+    # ~2.75:1 and were numerically much larger). 10.0 is the new evidence-based starting
+    # point — tunable, not "the answer"; the trainer warns if the anchor still leaks.
+    full_weight: 10.0
     ee_weight: 1.0          # base weight on early-exit terms
     curriculum: linear      # none | linear  (linear => deeper exits weighted ~ d/full)
 
