@@ -76,6 +76,58 @@ The two axes are orthogonal and composable; the **hardware-state loop is the con
 
 ---
 
+## 🔬 Measured so far — the go/no-go quality gate
+
+> **Scope of this evidence.** This is the **step-3 quality gate** (the go/no-go), measured
+> **on-device on the real model** — not the finished project. It is a **single on-device profiling
+> run**, and the headline energy / throughput / quality comparison (build steps 5–11) is **not yet
+> produced**. No headline number is claimed here; see [Still pending](#still-pending).
+
+**Setup.** DeepSeek-R1-Distill-Llama-8B (32 layers, fp16) on an NVIDIA Jetson AGX Orin, 2026-07-24.
+For each candidate depth *d*, we measure depth-*d* output vs the full-32 output over a 301-token
+calibration set: **mean KL**, **perplexity**, and **top-1 agreement**. Reproducible with
+`python3.10 -m poise.bringup --steps model,gate`; every row is persisted to the `quality_profile`
+table in `data/results/poise.db`.
+
+**Finding 1 — naive early-exit collapses.** On the stock model, dropping even 4 of 32 layers
+destroys agreement with the full model. There is no "free" reduced depth: the usable `LAYER_MIN`
+at KL ≤ 0.1 is 32. *This is the quality-collapse CLAUDE.md §9 warns about — measured, not assumed.*
+
+| depth | mean KL ↓ | perplexity ↓ | top-1 agree ↑ |
+| --: | --: | --: | --: |
+| 16 | 7.24 | 615,631 | 1.7% |
+| 20 | 6.30 | 278,734 | 7.6% |
+| 24 | 5.20 | 109,711 | 13.0% |
+| 28 | 3.91 | 34,098 | 14.6% |
+| 32 | 0.00 | 1,959 | 100% |
+
+**Finding 2 — LayerSkip adaptation recovers ≈3×.** A LoRA early-exit / self-distillation adapter
+(CLAUDE.md §9 option a) re-calibrates the intermediate layers to the LM head, cutting KL roughly
+threefold across the band while the full-depth anchor holds (depth-32 perplexity 1,959 → 1,874):
+
+| depth | mean KL ↓ | perplexity ↓ | top-1 agree ↑ | vs. naive |
+| --: | --: | --: | --: | :-- |
+| 16 | 2.78 | 12,982 | 9.0% | KL −62% |
+| 20 | 2.06 | 6,734 | 15.6% | KL −67% |
+| 24 | 1.55 | 4,253 | 29.2% | KL −70% |
+| 28 | 1.08 | 2,981 | 35.5% | KL −72% |
+| 32 | 0.00 | 1,874 | 100% | anchor held |
+
+**Honest read.** Adaptation works *directionally* — which is the entire premise of quality-preserving
+variable depth. But this first adapter (500 steps, small corpus) does **not** yet clear a strict
+usability bar: at depth 28 the adapted model still agrees with full-depth output only ~36% of the
+time. A stronger adapter (more steps, larger public corpus) is training now. **The ≤2–3%
+quality-loss target remains a hypothesis under test, not an achieved result** — exactly as
+CLAUDE.md §9 requires.
+
+<a name="still-pending"></a>
+**Still pending before any headline claim:** real thermal calibration (RC fit from on-board sweeps —
+currently synthetic), PPO policy training + on-board validation (no policy exists yet), and the
+multi-seed energy / quality / throughput comparison from `eval/report.py`. Until those land, POISE's
+headline numbers do not exist.
+
+---
+
 ## 🧠 How it works — a two-tier controller
 
 ```

@@ -69,6 +69,78 @@ Existing adaptive-depth / early-exit methods (**CALM, LayerSkip, AdaInfer, DASH*
 
 ---
 
+## 2b. Developer workflow — commands & environment (operational)
+
+> This section is the day-to-day operating manual for an agent working *in* the repo
+> (the rest of this file is the *design* spec). It reflects the code as built.
+
+### Commands
+
+```bash
+# Install the lightweight core (no torch) — runs fully off-device in mock mode.
+pip install -r requirements.txt
+pip install -e ".[dev]"            # adds pytest + ruff
+# Heavy paths are optional extras: .[engine] .[quant] .[rl] .[adapt] .[baselines] .[rag] .[jetson]
+
+# Tests — the whole suite is hermetic and passes with NO GPU, model, or board.
+pytest                             # -q is the default (pyproject addopts)
+pytest tests/test_pid.py          # one file
+pytest tests/test_pid.py::test_name -x   # one test, stop on first failure
+pytest -k adaptive                 # by keyword
+
+# Lint / format (ruff, line-length 100, py310 target).
+ruff check .
+ruff format .
+
+# Universal bring-up: auto-detects device+telemetry, runs profile→deps→GATE→eval.
+bash scripts/bringup.sh --model sshleifer/tiny-gpt2   # validate the FULL pipeline on CPU
+bash scripts/doctor.sh             # diagnose env (e.g. prints the correct JetPack torch wheel)
+
+# Serve API + Prometheus + dashboard (real engine on-device, mock engine off-device).
+bash scripts/serve.sh              # FastAPI :8000  → /health /v1/* /metrics
+cd dashboard && npm install && npm run dev   # → :5173
+
+# Regenerate synthetic data (scripts auto-run this when data/synthetic/* is missing).
+python3 scripts/make_synthetic_data.py
+```
+
+**Module entrypoints** (all runnable as `python3 -m poise.<mod>`, most guarded by
+`__main__`): `poise.bringup`, `poise.doctor`, `poise.calibration.sweep`,
+`poise.eval.benchmark`, `poise.rl.train_ppo`, `poise.adaptation` (LayerSkip LoRA).
+Console scripts (from `pyproject.toml`): `poise-serve`, `poise-calibrate`, `poise-benchmark`.
+
+### Config & environment — how settings resolve
+
+- **`poise.config.load_config() -> PoiseConfig` is the single entrypoint.** It deep-merges
+  `configs/*.yaml` (in a fixed order), loads `.env`, then applies `POISE_*` env-var overrides
+  **on top of** the YAML. Config dataclasses are **frozen**; validation **fails loud** on any
+  out-of-range value (`layer_min < layer_max <= layer_total`, `temp_setpoint < temp_max`, and
+  adaptive `dtype ∈ {fp16, bnb-4bit}` — `q4_k_m` is rejected with a pointer to the baseline).
+- To change behavior at runtime, set a `POISE_*` var (see `.env.example` for the full list) —
+  don't hand-edit `configs/*.yaml` for one-off runs. Key ones: `POISE_DEVICE` (auto→cuda/mps/cpu),
+  `POISE_TELEMETRY_BACKEND` (auto→jtop/nvml/tegrastats/mock), `POISE_CONTROL_MODE`
+  (static/pid/ppo), `POISE_MODEL_ID`, `POISE_DTYPE`, `POISE_BUDGET_SET`.
+- Secrets (`HF_TOKEN`, `KAGGLE_*`) are **env-only**, never in YAML.
+
+### Off-device / mock mechanism — why the suite is green without hardware
+
+This is the architectural invariant that makes the repo developable off-board — understand it
+before touching telemetry, engine, or hardware detection:
+
+- **Every hardware-touching module has a mock path.** `poise/hardware.py` auto-detects the device
+  and best telemetry backend and imports cleanly **without** torch / pynvml / jtop.
+- **`tests/conftest.py` forces `POISE_TELEMETRY_BACKEND=mock` and `POISE_DEVICE=cpu`** (via
+  `setdefault`, so exporting the real var opts back in) → tests are deterministic and
+  host-independent (identical result off-device, on Jetson, or on a GPU box).
+- **Heavy-dependency tests self-skip** via `pytest.importorskip(...)` (torch, transformers,
+  fastapi, gymnasium). `tests/test_engine_real_model.py` and `tests/test_layerskip.py` only run
+  where the engine deps are installed — so a green run off-device does **not** mean the real-model
+  path was exercised; validate that on the board / a GPU box.
+- **Serving off-device uses a mock engine that reuses the *real* control loop**, so the dashboard
+  and API are exercisable without weights.
+
+---
+
 ## 3. Exact Folder Structure to create
 
 See the repository tree. The package root is `poise/`, with submodules: `telemetry/`,
