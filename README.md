@@ -189,9 +189,9 @@ opposition — heat rises on the left, depth sheds on the right — making the w
 
 </div>
 
-> **Try it live:** the design is explorable as an [interactive preview](https://claude.ai/code/artifact/602ad948-73f1-4149-b6a6-7efcf7109498) —
-> drag the thermal load and watch depth shed. Or run it for real: `bash scripts/serve.sh`, then
-> `cd dashboard && npm run dev`.
+> **Run it:** `bash scripts/serve.sh` (FastAPI on :8000), then `cd dashboard && npm run dev`
+> (Vite on :5173). Off-device it serves a mock engine that reuses the real control loop, so the
+> dashboard works without weights.
 
 ---
 
