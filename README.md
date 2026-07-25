@@ -1,10 +1,8 @@
 <div align="center">
 
-# ⚡ POISE
+<img src="docs/assets/hero.svg" alt="POISE — Power-Optimized Inference via State-aware Execution: an on-device LLM engine that varies per-token transformer depth in response to live hardware physics" width="100%">
 
-### Power-Optimized Inference via State-aware Execution
-
-**An on-device LLM engine that varies per-token transformer depth in response to live hardware physics.**
+<br>
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![Tests](https://img.shields.io/badge/tests-158%20passing-2ea44f)](tests/)
@@ -44,6 +42,12 @@ falling off a throttling cliff.
    Whether POISE achieves this (and at what quality cost) is an empirical question
    answered only by the eval harness.
 ```
+
+> [!NOTE]
+> **Measured outcome (spoiler):** on the Jetson Orin this design goal is **not** achieved —
+> depth turned out to be an *energy/throughput* knob, not a thermal one (power is flat across
+> depth, so shedding layers doesn't cool the chip). See [🔬 Measured](#-measured--a-characterization)
+> for the honest, decisive result.
 
 ---
 
@@ -192,6 +196,28 @@ thermal safety (`TEMP_MAX`) overrides throughput, always.
 - 🖥️ **Live dashboard + API** — FastAPI (`/v1/*`) + Prometheus + a React/Recharts UI.
 - 🌐 **Universal** — auto-detects cuda/mps/cpu + jtop/nvml/mock; depth adapts to any model.
 - 🧪 **Fully testable off-device** — 158 tests green with no GPU, no model, no board.
+
+---
+
+## 🖥️ The dashboard
+
+The React/Recharts UI is a **thermal-governor instrument**: a single accent colour is
+interpolated from live junction temperature, so the gauge, the depth-budget ladder, and the
+page itself *warm* as the chip heats. The junction gauge and the depth ladder move in
+opposition — heat rises on the left, depth sheds on the right — making the whole thesis
+(`temp ↑ ⇒ depth ↓`) legible at a glance.
+
+<div align="center">
+
+<img src="docs/assets/dashboard.svg" alt="POISE Thermal Governor dashboard: a junction-temperature gauge at 82.5°C over the 80° setpoint, a depth-budget ladder with the 20-layer rung active, live telemetry readouts, and temperature/budget traces" width="100%">
+
+<sub><b>Vector rendering</b> of the live dashboard, captured at a “governor holding over setpoint” moment (PID mode, depth shed to 20). Derived from the app's own thermochromic logic — not a mockup, not measured performance.</sub>
+
+</div>
+
+> **Run it:** `bash scripts/serve.sh` (FastAPI on :8000), then `cd dashboard && npm run dev`
+> (Vite on :5173). Off-device it serves a mock engine that reuses the real control loop, so the
+> dashboard works without weights.
 
 ---
 
