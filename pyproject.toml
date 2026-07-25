@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Power-Optimized Inference via State-aware Execution — hardware-state-conditioned variable-depth LLM inference on Jetson."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Proprietary — personal IP, see CLAUDE.md governance" }
+license = { text = "Proprietary — personal IP. All rights reserved." }
 authors = [{ name = "POISE" }]
 keywords = [
     "llm",
