@@ -1,0 +1,66 @@
+{
+  "tag": "maxn",
+  "model_id": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+  "adapter": null,
+  "layer_total": 32,
+  "repeats": 3,
+  "max_new_tokens": 256,
+  "warmup": 32,
+  "rows": [
+    {
+      "depth": 16,
+      "tok_per_s_mean": 23.947091231249388,
+      "tok_per_s_std": 0.008970441352286937,
+      "energy_per_token_j_mean": 1.897579950387316,
+      "energy_per_token_j_std": 0.006504839923277877,
+      "mean_power_w": 45.4414689919275,
+      "peak_temp_c_mean": 46.5,
+      "tok_per_s_per_watt": 0.5269870182786709,
+      "tok_per_s_per_watt_ratio_vs_full": 2.05325883756469
+    },
+    {
+      "depth": 20,
+      "tok_per_s_mean": 19.125588351853285,
+      "tok_per_s_std": 0.045674695146921164,
+      "energy_per_token_j_mean": 2.4066672544708716,
+      "energy_per_token_j_std": 0.016417335652726996,
+      "mean_power_w": 46.02818511209116,
+      "peak_temp_c_mean": 49.895333333333326,
+      "tok_per_s_per_watt": 0.41551236388923213,
+      "tok_per_s_per_watt_ratio_vs_full": 1.6189287471628246
+    },
+    {
+      "depth": 24,
+      "tok_per_s_mean": 15.966149557780865,
+      "tok_per_s_std": 0.02136164226796515,
+      "energy_per_token_j_mean": 2.9242980946827974,
+      "energy_per_token_j_std": 0.009422083894756093,
+      "mean_power_w": 46.689789206163745,
+      "peak_temp_c_mean": 53.541333333333334,
+      "tok_per_s_per_watt": 0.3419624017873839,
+      "tok_per_s_per_watt_ratio_vs_full": 1.3323617076531151
+    },
+    {
+      "depth": 28,
+      "tok_per_s_mean": 13.79618105698808,
+      "tok_per_s_std": 0.02278331894887079,
+      "energy_per_token_j_mean": 3.4132173233230385,
+      "energy_per_token_j_std": 0.007281194202088449,
+      "mean_power_w": 47.089216173283226,
+      "peak_temp_c_mean": 55.864,
+      "tok_per_s_per_watt": 0.29297870755748434,
+      "tok_per_s_per_watt_ratio_vs_full": 1.141510321213605
+    },
+    {
+      "depth": 32,
+      "tok_per_s_mean": 12.085912011540898,
+      "tok_per_s_std": 0.02053382518010261,
+      "energy_per_token_j_mean": 3.8962228031183233,
+      "energy_per_token_j_std": 0.01175379339708079,
+      "mean_power_w": 47.089168418302506,
+      "peak_temp_c_mean": 58.208,
+      "tok_per_s_per_watt": 0.2566588335758558,
+      "tok_per_s_per_watt_ratio_vs_full": 1.0
+    }
+  ]
+}
