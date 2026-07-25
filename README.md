@@ -76,12 +76,13 @@ The two axes are orthogonal and composable; the **hardware-state loop is the con
 
 ---
 
-## 🔬 Measured so far — the go/no-go quality gate
+## 🔬 Measured — a characterization
 
-> **Scope of this evidence.** This is the **step-3 quality gate** (the go/no-go), measured
-> **on-device on the real model** — not the finished project. It is a **single on-device profiling
-> run**, and the headline energy / throughput / quality comparison (build steps 5–11) is **not yet
-> produced**. No headline number is claimed here; see [Still pending](#still-pending).
+> **Scope of this evidence.** All numbers below are eval-harness outputs on the real model
+> (DeepSeek-R1-Distill-Llama-8B, fp16) on an NVIDIA Jetson AGX Orin, reported with variance where
+> repeated. This section covers the go/no-go quality gate **and** the on-device throughput/energy/
+> thermal characterization. Findings that refute the project's initial hypothesis are reported as
+> found (CLAUDE.md §9); see [Honest status](#still-pending).
 
 **Setup.** DeepSeek-R1-Distill-Llama-8B (32 layers, fp16) on an NVIDIA Jetson AGX Orin, 2026-07-24.
 For each candidate depth *d*, we measure depth-*d* output vs the full-32 output over a 301-token
@@ -113,18 +114,37 @@ threefold across the band while the full-depth anchor holds (depth-32 perplexity
 | 28 | 1.08 | 2,981 | 35.5% | KL −72% |
 | 32 | 0.00 | 1,874 | 100% | anchor held |
 
-**Honest read.** Adaptation works *directionally* — which is the entire premise of quality-preserving
-variable depth. But this first adapter (500 steps, small corpus) does **not** yet clear a strict
-usability bar: at depth 28 the adapted model still agrees with full-depth output only ~36% of the
-time. A stronger adapter (more steps, larger public corpus) is training now. **The ≤2–3%
-quality-loss target remains a hypothesis under test, not an achieved result** — exactly as
-CLAUDE.md §9 requires.
+**Finding 3 — task-level cost (ARC).** On 300 AI2 ARC items (length-normalized log-likelihood, the
+standard `acc_norm`), depth reduction has a real but *milder* cost than KL implied — even 4 shed
+layers stay well above the ≤2–3% hypothesis. v1 adapter, `acc_norm`: 32 → 0.557, 28 → 0.477
+(−14%), 24 → 0.423 (−24%), 16 → 0.347 (−38%). The adapter does not damage full depth.
+
+**Finding 4 — depth is an energy/throughput knob, not a thermal one (the decisive result).**
+Real on-board RC calibration holds (R_th 0.807 K/W, τ 64.8 s, fit RMSE 0.32 °C), but the thermal
+premise does **not**. Measured on the Jetson (≥3 repeats, std < 0.1 tok/s):
+
+| depth | tok/s | J/token | tok/s·W⁻¹ | ARC acc |
+| --: | --: | --: | --: | --: |
+| 32 | 12.09 | 3.896 | 0.257 (1.00×) | 0.557 |
+| 24 | 15.97 | 2.924 | 0.342 (1.33×) | 0.423 |
+| 16 | 23.95 | 1.898 | 0.527 (**2.05×**) | 0.347 |
+
+Halving depth buys ~2× throughput and ~2× lower energy/token — but **it does not cool the chip.**
+Across decode, prefill (2048), and batched (8×512) forwards, doubling depth moves power by ≤2 W
+while throughput scales ~2× (the GPU pegs at a power/clock ceiling; depth only sets how fast work
+clears). In the closed-loop stress test, `static-16` runs *hotter* than `static-32` (higher
+throughput keeps the GPU busier), and a PID conditioned on junction temp correctly sheds depth
+(32→21) yet runs the **hottest** of all — the actuator has no thermal authority. At ~47 W the chip
+plateaus ~60 °C and never reaches the ~87 °C throttle point. Full write-up: [`docs/arxiv/paper.md`](docs/arxiv/paper.md).
 
 <a name="still-pending"></a>
-**Still pending before any headline claim:** real thermal calibration (RC fit from on-board sweeps —
-currently synthetic), PPO policy training + on-board validation (no policy exists yet), and the
-multi-seed energy / quality / throughput comparison from `eval/report.py`. Until those land, POISE's
-headline numbers do not exist.
+**Honest status.** The thermal-regulation objective as originally framed is **refuted for
+single-stream decode on the Orin** (reported as found — CLAUDE.md §9). What holds up, measured with
+variance, is hardware-state-conditioned depth as an **energy/throughput knob** at a fixed operating
+point, at a quantified quality cost. PPO against the calibrated simulator is *not* pursued: with
+flat depth→power the policy would have no thermal signal to learn. The defensible contribution is a
+**characterization** — when/why depth control helps (energy/throughput) and why it fails as thermal
+control on a power-ceiling-bound accelerator.
 
 ---
 
