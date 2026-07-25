@@ -1,0 +1,60 @@
+{
+  "tag": "arc_v1adapter",
+  "model_id": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+  "adapter": "data/results/layerskip_adapter",
+  "suite": "data/eval/arc_mc.jsonl",
+  "n_questions": 300,
+  "layer_total": 32,
+  "acc_norm_full": 0.5566666666666666,
+  "rows": [
+    {
+      "depth": 16,
+      "acc_norm": 0.3466666666666667,
+      "acc_raw": 0.3433333333333333,
+      "delta_acc_norm_vs_full": 0.20999999999999996,
+      "rel_loss_pct": 37.72455089820359
+    },
+    {
+      "depth": 20,
+      "acc_norm": 0.39,
+      "acc_raw": 0.37333333333333335,
+      "delta_acc_norm_vs_full": 0.16666666666666663,
+      "rel_loss_pct": 29.94011976047904
+    },
+    {
+      "depth": 24,
+      "acc_norm": 0.42333333333333334,
+      "acc_raw": 0.44333333333333336,
+      "delta_acc_norm_vs_full": 0.1333333333333333,
+      "rel_loss_pct": 23.95209580838323
+    },
+    {
+      "depth": 26,
+      "acc_norm": 0.4533333333333333,
+      "acc_raw": 0.45,
+      "delta_acc_norm_vs_full": 0.10333333333333333,
+      "rel_loss_pct": 18.562874251497007
+    },
+    {
+      "depth": 28,
+      "acc_norm": 0.4766666666666667,
+      "acc_raw": 0.46,
+      "delta_acc_norm_vs_full": 0.07999999999999996,
+      "rel_loss_pct": 14.371257485029934
+    },
+    {
+      "depth": 30,
+      "acc_norm": 0.4866666666666667,
+      "acc_raw": 0.49666666666666665,
+      "delta_acc_norm_vs_full": 0.06999999999999995,
+      "rel_loss_pct": 12.574850299401188
+    },
+    {
+      "depth": 32,
+      "acc_norm": 0.5566666666666666,
+      "acc_raw": 0.56,
+      "delta_acc_norm_vs_full": 0.0,
+      "rel_loss_pct": 0.0
+    }
+  ]
+}
